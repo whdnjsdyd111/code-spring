@@ -1,0 +1,665 @@
+            15.1 검색 기능과 SQL
+
+게시물 검색 기능은 다음 분류가 가능하다.
+
+
+    - 제목/내용/작성자 등 단일 항목 검색
+    - 제목 or 내용, 제목 or 작성ㅇ자, 내용 or 작성자, 제목 or 내용 or 작성자와 같은 다중 항목 검색
+
+
+위와 같은 복합적인 방식이 존재하며 검색이 붙으면 SQL 쪽이 신경쓰이게 된다.
+오라클 페이징 처리는 인라인뷰로 실제 검색 조건은 인라인뷰 내부에서 이루어져야한다.
+단일 항목 검색은 검색 조건에 따라 컬럼이 달라지고, LIKE 처리로 키워드를 사용하게 된다.
+만일 2 페이지에 해당하는 데이터를 '제목' 으로 검색하고, 키워드는 'Test' 라고 하면 다음과 같이 작성할 수 있다.
+
+
+    검색 조건               내용
+
+    제목(title)          SELECT * FROM (
+    내용(content)            SELECT /*+ INDEX_DESC(tbl_board pk_board) */
+    작성자(writer)            ROWNUM rn, bno, title, content, writer, regdate, updatedate
+                             FROM tbl_board WHERE
+                             -- 변경 부분
+                             title LIKE '%Test%'
+                             AND ROWNUM <= 20
+                             )
+                        WHERE rn > 10;
+
+
+단일 항목은 인라인뷰 안쪽에서 필요한 데이터를 가져올 때 검색 조건이 적용되야 해서 WHERE 문 뒤에 검색 조건이 추가되고,
+ROWNUM 조건이 뒤따르게 하면 문제가 없다.
+
+
+        15.1.1 다중 항목 검색
+
+문제는 2개 이상의 조건이 붙는 다중 항목의 검색이다. 예를 들어, 제목(title)이나 내용(content) 중 'TEST' 란 문자열이 있는
+게시물들을 검색하고 싶을 때 다음과 같이 작성될 것이라 예상할 수 있다.
+
+
+    -- 예상과 다르게 동작하는 SQL
+    SELECT * FROM (
+        SELECT /*+ INDEX_DESC(tbl_board pk_board) */
+        ROWNUM rn, bno, title, content, writer, regdate, updatedate
+        FROM tbl_board WHERE title LIKE '%제목%' OR content LIKE '%제목%' AND ROWNUM <= 20 )
+    WHERE rn > 10;
+
+
+'TEST' 를 찾는 구문 자체는 이상 없지만 실제 동작을 보면 10개 이상의 많은 양의 데이터를 가져오는 것을 볼 수 있다.
+이렇게 많은 데이터가 나온 이유는 SQL 문에서 AND 연산자가 OR 연산자보다 우선 순위가 높기 때문에
+'ROWNUM이 20보다 작거나 같으면서(AND) 내용에 'TEST' 란 문자열이 있거나 제목에 'TEST' 문자열이 있는 게시물' 을 검색하게 된다.
+제목에 'TEST' 란 문자열이 있는 경우가 많아 많은 양의 데이터가 나오는 것이다.
+
+AND 와 OR 이 섞인 SQL 작성 시 우선 순위 연산자 '()' 를 이용하여 OR 조건을 처리한다.
+
+
+    -- 정상적 처리를 위해 () 을 이용하여 OR 처리
+    SELECT * FROM (
+        SELECT /*+ INDEX_DESC(tbl_board pk_board) */
+        ROWNUM rn, bno,title, content, writer, regdate, updatedate
+        FROM tbl_board WHERE (title LIKE '%TEST%' OR content LIKE '%TEST%')
+        AND ROWNUM <= 20)
+    WHERE rn > 10;
+
+
+위 결과는 10개 데이터만 출력된다.
+
+
+            15.2 MyBatis 동적 SQL
+
+SQL 검색조건 변하면 내용도 변하기 때문에 XML 이나 어노테이션 같은 고정된 문자열을 작성하는 방식으로는 제대로 처리할 수 없다.
+MyBatis 는 동적(Dynamic) 태그 기능을 통해 SQL 파라미터들의 조건에 맞게 조정할 수 있는 기능을 제공한다.
+MyBatis 동적 태그는 약간의 구문을 이용하여 전달된 파라미터를 가공하여 SQL 을 만들어서 실행할 수 있다.
+
+
+        15.2.1 MyBatis 동적 태그들
+
+MyBatis 는 기존의 iBatis 에 발전하며 복잡한 동적 SQL 을 작성하는 태그들이 많이 정리되어 있어 다음 같은 몇가지 태그들을 이용한다.
+
+
+    - if
+    - choose(when, otherwise)
+    - trim(where, set)
+    - foreach
+
+
+MyBatis 동적 태그와 관련된 실습은 후에 하고, 아래 내용은 이해를 위한 것이다.
+
+
+    <if>
+
+if 는 test 란 속성과 함께 특정 조건이 true 면 포함된 SQL 을 사용하고자 할 때 작성한다.
+예로 단일 항목으로 제목(title), 내용(content), 작성자(writer)에 대해 검색할 상황을 가정하자.
+
+
+    - 검색 조건이 'T' 면 제목(title)이 키워드인 항목을 검색
+    - 검색 조건이 'C' 면 내용(content)이 키워드인 항목을 검색
+    - 검색 조건이 'W' 면 작성자(writer)이 키워드인 항목을 검색
+
+
+위 경우 MyBatis 에서 XML 에 다음과 같이 작성할 수 있다.
+
+
+    <if test="type == 'T'.toString()">
+        (title LIKE '%'||#{keyword}||'%')
+    </if>
+    <if test="type == 'C'.toString()">
+        (content LIKE '%'||#{keyword}||'%')
+    </if>
+    <if test="type == 'W'.toString()">
+        (writer LIKE '%'||#{keyword}||'%')
+    </if>
+
+
+If 안에 들어가는 표현식(expression)은 OGNL 표현식을 이용한다.
+자세한 내용은 https://commons.apache.org/proper/commons-ognl/language-guide.html 을 참고하자.
+
+
+    <choose>
+
+if 와 달리 choose 는 여러 상황들 중 한 상황만 동작한다. Java 의 'if ~ else' 나 JSTL 의 <choose> 와 유사하다.
+
+
+    <choose>
+        <when test="type == 'T'.toString()">
+            (title LIKE '%'||#{keyword}||'%')
+        </when>
+        <when test="type == 'C'.toString()">
+            (content LIKE '%'||#{keyword}||'%')
+        </when>
+        <when test="type == 'W'.toString()">
+            (writer LIKE '%'||#{keyword}||'%')
+        </when>
+        <otherwise>
+            (title LIKE '%'||#{keyword}||'%' OR content LIKE '%'||#{keyword}||'%')
+        </otherwise>
+    </choose>
+
+
+<otherwise> 는 모든 위 조건이 충족하지 않을 경우 사용한다.
+
+
+    <trim>, <where>, <set>
+
+trim, where, set 은 단독으로 사용하지 않고 <if>, <choose> 같은 태그에 내포하여 SQL 을 연결하고,
+앞 뒤 필요한 구문들(AND, OR, WHERE 등)을 추가하거나 생략하는 역할을 한다.
+
+<where> 태그 안쪽에 SQL 이 생성될 때 WHERE 구문이 붙고, 그렇지 않을 때는 생성되지 않는다.
+
+
+    SELECT * FROM tbl_board
+    <where>
+        <if test="bno != null">
+            bno = #{bno}
+        </if>
+    </where>
+
+
+위 경우는 bno 값이 null 이면 WHERE 구문은 없어지고, 존재할 시에만 'WHERE bno = xxx' 와 같이 생성된다.
+
+
+    bno 값이 존재할 때        SELECT * FROM tbl_board WHERE bno = 33
+    bno 가 null 일 때        SELECT * FROM tbl_board
+
+
+<trim> 은 태그 앞 내용과 관련되어 원하는 접두/접미를 처리할 수 있다.
+
+
+    SELECT * FROM tbl_board
+    <where>
+        <if test="bno != null">
+            bno = #{bno}
+        </if>
+        <trim prefixOverrides="and">
+            ROWNUM = 1
+        </trim>
+    </where>
+
+
+trim 은 prefix, suffix, prefixOverrides, suffixOverrides 속성을 지정할 수 있다.
+
+
+    bno 값이 존재할 때        SELECT * FROM tbl_board WHERE bno = 33 AND ROWNUM = 1
+    bno 가 null 일 때        SELECT * FROM tbl_board WHERE ROWNUM = 1
+
+
+    <foreach>
+
+foreach 는 List, 배열, 맵 등으로 루프를 처리할 수 있다.
+주로 IN 조건에 많이 사용하지만 경우에 따라 복잡한 WHERE 조건을 만들 수도 있다.
+
+예로 제목('T') 'TTTT' 로 내용('C')은 'CCCC' 라는 값을 이용하면 Map 의 형태로 작성 가능하다.
+
+
+    Map<String, String> map = new HashMap<>();
+    map.put("T", "TTTT");
+    map.put("C", "CCCC");
+
+
+작성된 Map 을 파라미터로 전달하고, foreach 로 다음과 같은 형식이 가능하다.
+
+
+    SELECT * FROM tbl_board
+    <trim prefix="where (" suffix=")" prefixOverrides="OR" >
+        <foreach item="val" index="key" collection="map">
+
+            <trim prefix="OR">
+                <if test="key == 'C'.toString()">
+                    content = #{val}
+                </if>
+                <if test="key == 'T'.toString()">
+                    title = #{val}
+                </if>
+                <if test="key == 'W'.toString()">
+                    writer = #{val}
+                </if>
+            </trim>
+
+        </foreach>
+    </trim>
+
+
+foreach 를 배열이나 List 를 이용할 경우 item 속성만 사용하면 되고 Map 의 경우 key 와 value 를 이용할 때는
+index 와 item 속성 둘 다 이용한다. 전달된 값은 다음과 같이 처리된다.
+
+
+    SELECT * FROM tbl_board
+    WHERE ( content = ? OR title = ? )
+
+    INFO : jdbc.sqlonlu - select * from tbl_board where ( content = 'CCCC' OR title = 'TTTT' )
+
+
+            15.3 검색 조건 처리를 위한 Criteria 의 변화
+
+Criteria 는 pageNum 과 amount 만 수집하는데 페이징 검색 조건 처리를 위해 Criteria 역시 변화가 필요하다.
+검색 조건 처리를 위해 검색 조건(type)과 검색에 사용할 키워드가 필요하므로 기존 Criteria 를 확장할 필요가 있다.
+확장 방법으론 상속 방법이나 직접 수정하는 방법이 있는데 직접 Criteria 클래스를 수정하겠다.
+
+
+    @Getter
+    @Setter
+    @ToString
+    public class Criteria {
+        private int pageNum;
+        private int amount;
+
+        private String type;
+        private String keyword;
+
+        public Criteria() {
+            this(1, 10);
+        }
+
+        public Criteria(int pageNum, int amount) {
+            this.pageNum = pageNum;
+            this.amount = amount;
+        }
+
+        public String[] getTypeArr() {
+            return type == null ? new String[] {} : type.split("");
+        }
+    }
+
+
+Criteria 클래스는 type 과 keyword 변수를 추가한다. getTypeArr 은 검색 조건이 각 글자(T, W, C)로 구성되어
+검색 조건을 배열로 만들어 한 번에 처리하기 위함이다. getTypeArr() 을 이용하여 MyBatis 동적 태그를 활용한다.
+
+
+        15.3.1 BoardMapper.xml 에서 Criteria 처리
+
+BoardMapper.xml 은 기존 getListWithPaging() 을 수정하여 동적 SQL 을 처리한다.
+
+
+    <select id="getListWithPaging" resultType="domain.BoardVO">
+        <![CDATA[
+            SELECT bno, title, content, writer, regdate, updatedate
+            FROM (
+                SELECT /*+ INDEX_DESC(tbl_board pk_board) */
+                ROWNUM rn, bno, title, content, writer, regdate, updatedate
+                FROM tbl_board WHERE
+        ]]>
+        <trim prefix="(" suffix=") AND " prefixOverrides="OR">
+            <foreach item="type" collection="typeArr">
+                <trim prefix="OR">
+                    <choose>
+                        <when test="type == 'T'.toString()">
+                            title LIKE '%'||#{keyword}||'%'
+                        </when>
+                        <when test="type == 'C'.toString()">
+                            content LIKE '%'||#{keyword}||'%'
+                        </when>
+                        <when test="type == 'W'.toString()">
+                            writer LIKE '%'||#{keyword}||'%'
+                        </when>
+                    </choose>
+                </trim>
+            </foreach>
+        </trim>
+
+        <![CDATA[
+            ROWNUM <= #{pageNum} * #{amount}
+            )
+            WHERE rn > (#{pageNum} - 1) * #{amount}
+        ]]>
+    </select>
+
+
+검색 조건이 3가지 이니 6가지의 조합이 가능하지만, 각 문자를 조합하여 검색 조건을 결합하는 형태로 하면
+3개의 동적 SQL 구문만으로 처리할 수 있다. <foreach> 를 이용해서 검색 조건을 처리하는데 typeArr 이란 속성을 이용한다.
+MyBatis 는 원하는 속성을 찾을 때 getTypeArr() 과 같이 이름에 기반두어 검색하기 때문에
+Criteria 에서 만든 getTypeArr() 결과인 문자열 배열인 <foreach>의 대상이 된다.
+
+<choose> 안쪽의 동적 SQL 은 'OR title ... OR content ... OR writer' 와 같은 구문을 만들어내게 된다.
+따라서 바깥에서 <trim> 을 이용하여 맨 앞에 생성되는 'OR' 을 없애준다.
+
+동적 SQL 은 경우에 따라 여러 종류의 SQL 이 생성될 수 있으므로 제대로 동작하는지 반드시 여러 번 확인을 거쳐야만 한다.
+기존 BoardMapperTests 에서 테스트 코드를 작성한다.
+
+
+    @Test
+    public void testSearch() {
+        Criteria cri = new Criteria();
+        cri.setKeyword("새로");
+        cri.setType("TC");
+
+        List<BoardVO> list = mapper.getListWithPaging(cri);
+
+        list.forEach(board -> log.info(board));
+    }
+
+
+testSearch() 는 Criteria 객체의 type 의 keyword 를 넣어 원하는 SQL 이 생성되는지 확인하기 위함이다.
+중요한건 실행 결과가 아닌 실행할 때 만들어진 SQL 이다.
+아래와 같이 각 상황에 맞게 SQL 이 올바르게 만들어지는지 확인을 해야 한다.
+
+
+    SQL 관련 로그                                                    조건
+
+    SELECT bno, title, content, writer, regdate, updatedate         검색 조건이 없는 경우
+    FROM ( SELECT /*+ INDEX_DESC(tbl_board pk_board) */
+    ROWNUM rn, bno, title, content, writer, regdate, updatedate
+    FROM tbl_board WHERE
+    ROWNUM <= ? * ? )
+    WHERE rn > (? - 1) * ?
+
+
+    SELECT bno, title, content, writer, regdate, updatedate         단일 검색(제목)
+    FROM ( SELECT /*+ INDEX_DESC(tbl_board pk_board) */
+    ROWNUM rn, bno, title, content, writer, regdate, updatedate
+    FROM tbl_board WHERE
+    ( title LIKE '%'||?||'%' ) AND
+    ROWNUM <= ? * ? )
+    WHERE rn > (? - 1) * ?
+
+
+    SELECT bno, title, content, writer, regdate, updatedate         다중 검색(제목 OR 내용)
+    FROM ( SELECT /*+ INDEX_DESC(tbl_board pk_board) */
+    ROWNUM rn, bno, title, content, writer, regdate, updatedate
+    FROM tbl_board WHERE
+    ( title LIKE '%'||?||'%'
+        OR content LIKE '%'||?||'%' ) AND
+    ROWNUM <= ? * ? )
+    WHERE rn > (? - 1) * ?
+
+
+    <sql> <include> 와 검색 데이터 개수 처리
+
+동적 SQL 로 검색 조건 처리 부분은 해당 데이터 개수를 처리하는 부분에서도 동일히 적용되어야만 한다.
+이 경우 가장 간단하게는 동적 SQL 처리 부분을 복사해서 넣을 순 있지만, 동적 SQL 수정할 때 매번 수정을 해야 한다.
+
+MyBatis 는 <sql> 태그를 이용하여 SQL 일부를 별도로 보관하고, 필요한 경우 include 시키는 형태로 사용할 수 있다.
+
+
+    <sql id="criteria">
+        <trim prefix="(" suffix=") AND" prefixOverrides="OR">
+            <foreach collection="typeArr" item="type">
+                <trim prefix="OR">
+                    <choose>
+                        <when test="type == 'T'.toString()">
+                            title LIKE '%'||#{keyword}||'%'
+                        </when>
+                        <when test="type == 'C'.toString()">
+                            content LIKE '%'||#{keyword}||'%'
+                        </when>
+                        <when test="type == 'W'.toString()">
+                            writer LIKE '%'||#{keyword}||'%'
+                        </when>
+                    </choose>
+                </trim>
+            </foreach>
+        </trim>
+    </sql>
+
+    <select id="getListWithPaging" resultType="domain.BoardVO">
+        <![CDATA[
+            SELECT bno, title, content, writer, regdate, updatedate
+            FROM (
+                SELECT /*+ INDEX_DESC(tbl_board pk_board) */
+                ROWNUM rn, bno, title, content, writer, regdate, updatedate
+                FROM tbl_board WHERE
+        ]]>
+
+        <include refid="criteria"></include>
+
+        <![CDATA[
+            ROWNUM <= #{pageNum} * #{amount}
+            )
+            WHERE rn > (#{pageNum} - 1) * #{amount}
+        ]]>
+    </select>
+
+    <select id="getTotalCount" resultType="int">
+        SELECT COUNT(*) FROM tbl_board WHERE
+
+        <include refid="criteria"></include>
+
+        bno > 0
+    </select>
+
+
+<sql> 태그는 id 란 속성으로 필요한 경우 SQL 의 일부를 재사용할 수 있다.
+
+
+            15.4 화면에서 검색 조건 처리
+
+화면 검색은 다음 사항에 주의해야 한다.
+
+
+    - 페이지 번호가 파라미터로 유지되었던 것처럼 검색 조건과 키워드 역시 화면 이동 시 같이 전송
+    - 화면 검색 버튼 클릭 시 새로 검색하는 의미로 1 페이지로 이동
+    - 한글의 경우 GET 방식으로 이동하는 경우 문제 생길 수 있으니 주의
+
+
+        15.4.1 목록 화면에서의 검색 처리
+
+목록 화면인 list.jsp 에서 검색 조건과 키워드가 들어갈 수 있게 HTML 을 수정한다.
+views 폴더 list.jsp 수정하여 내용을 추가한다.
+
+
+    <div class="row">
+        <div class="col-lg-12">
+            <form id="searchForm" action="/board/list" method="get">
+                <select name="type">
+                    <option value="">--</option>
+                    <option value="T">제목</option>
+                    <option value="C">내용</option>
+                    <option value="W">작성자</option>
+                    <option value="TC">제목 or 내용</option>
+                    <option value="TW">제목 or 작성자</option>
+                    <option value="TWC">제목 or 내용 or 작성자</option>
+                    <input type="text" name="keyword" />
+                    <input type="hidden" name="pageNum" value="${pageMaker.cri.pageNum}">
+                    <input type="hidden" name="amount" value="${pageMaker.cri.amount}">
+                    <button class="btn btn-outline-dark">Search</button>
+                </select>
+            </form>
+        </div>
+    </div>
+
+
+수정된 HTML 을 보면 페이징 처리를 위한 <form> 태그에 <select> 와 <input> 태그를 추가하였다.
+
+<form> 내 <button> 기본 동작은 submit 이므로 별도 처리 없이 검색되는지 확인한다.
+항상 테스트는 영문 한글 모두 잘 되어야 한다.
+하지만 위 검색 처리는 몇가지 문제가 있는데, 3 페이지 보다가 검색하면 3페이지로 이동하는 문제, 검색 후 페이지 이동 시
+검색 조건이 사라지는 문제, 검색 후 화면에서 이용한 검색 조건과 키워드를 알 수 없는 문제들이 있다.
+
+
+    검색 버튼의 이벤트 처리
+
+여러 문제 중 검색 버튼 클릭 시 1 페이지를 하도록 수정하고, 화면에 검색 조건과 키워드가 보이게 처리하는 작업을 진행한다.
+
+
+    $('#searchForm button').on("click", function(e) {
+        if(!searchForm.find("option:selected").val()) {
+            alert("검색 종류를 선택하세요");
+            return false;
+        }
+
+        if(!searchForm.find("input[name='keyword']").val()) {
+            alert('키워드를 입력하세요');
+            return false;
+        }
+
+        searchForm.find("input[name='pageNum']").val("1");
+        e.preventDefault();
+
+        searchForm.submit();
+    });
+
+
+브라우저에서 검색 버튼 클릭 시 <form> 태그 전송은 막고, 페이지 번호는 1이 되도록 처리한다.
+화면에 키워드가 없다면 검색을 하지 못하게 제어한다.
+
+검색 후 주소 창에 검색 조건과 키워드가 같이 GET 방식으로 처리되어 이를 이용하여 <select> 와 <input> 태그의 내용을 수정해야 한다.
+
+
+    <select name="type">
+        <option value="" <c:out value="${pageMaker.cri.type == null ? 'selected' : ''}" />>--</option>
+        <option value="T" <c:out value="${pageMaker.cri.type eq 'T' ? 'selected' : ''}" />>제목</option>
+        <option value="C" <c:out value="${pageMaker.cri.type eq 'C' ? 'selected' : ''}" />>내용</option>
+        <option value="W" <c:out value="${pageMaker.cri.type eq 'W' ? 'selected' : ''}" />>작성자</option>
+        <option value="TC" <c:out value="${pageMaker.cri.type eq 'TC' ? 'selected' : ''}" />>제목 or 내용</option>
+        <option value="TW" <c:out value="${pageMaker.cri.type eq 'TW' ? 'selected' : ''}" />>제목 or 작성자</option>
+        <option value="TWC" <c:out value="${pageMaker.cri.type eq 'TWC' ? 'selected' : ''}" />>제목 or 내용 or 작성자</option>
+    </select>
+
+
+<select> 태그 내부에 삼항 연산자로 해당 조건을 검색한 경우 'selected' 문자열을 출력하여 선택된 항목이 보이도록 하였다.
+
+페이지 번호 클릭 시 이동할 때도 검색 조건과 키워드가 같이 전달되야 하니 이동에 사용한 <form> 태그를 아래와 같이 수정한다.
+
+
+    <form id="actionForm" action="/board/list" method="get">
+        <input type="hidden" name="pageNum" value="${pageMaker.cri.pageNum}">
+        <input type="hidden" name="amount" value="${pageMaker.cri.amount}">
+        <input type="hidden" name="type" value="${pageMaker.cri.type}">
+        <input type="hidden" name="keyword" value="${pageMaker.cri.keyword}">
+    </form>
+
+
+검색 조건과 키워드가 처리되며 검색 후 페이지 이동하여 동일한 검색 사항들 계속 유지되는 것을 볼 수 있다.
+
+
+        15.4.2 조회 페이지에서 검색 처리
+
+목록 페이지에 조회 페이지로의 이동은 이미 <form> 태그로 처리하여 벌도 처리가 필요하지 않다.
+다만 조회 페이지는 아직 Criteria 의 type 과 keyword 에 대한 처리가 없어 수정해줄 필요가 있다.
+
+
+    <form id="operForm" action="/board/modify" method="get">
+        <input type="hidden" id="bno" name="bno" value='<c:out value="${board.bno}"/>'>
+        <input type="hidden" name="pageNum" value='<c:out value="${cri.pageNum}"/>'>
+        <input type="hidden" name="amount" value='<c:out value="${cri.amount}"/>'>
+        <input type="hidden" name="type" value="${cri.type}">
+        <input type="hidden" name="keyword" value="${cri.keyword}">
+    </form>
+
+
+        15.4.3 수정/삭제 페이지에 검색 처리
+
+조회 페이지에 수정/삭제 페이지로 이동은 GET 방식으로 이동하고, 방식 역시 <form> 태그를 이용하는 방식이어
+기존 <form> 태그에 추가적인 type 과 keyword 조건만 추가한다.
+
+
+    <form role="form" action="/board/modify" method="post">
+        <!-- 추가 -->
+        <input type="hidden" name="pageNum" value='<c:out value="${cri.pageNum}"/>'>
+        <input type="hidden" name="pageNum" value='<c:out value="${cri.amount}"/>'>
+        <input type="hidden" name="type" value="${cri.type}">
+        <input type="hidden" name="keyword" value="${cri.keyword}">
+        ...
+
+
+수정/삭제 처리는 BoardController 에 redirect 방식으로 동작하니 type 과 keyword 조건을 같이 리다이렉트 시에 포함시킨다.
+
+
+    @PostMapping("/modify")
+    public String modify(BoardVO board, @ModelAttribute("cri") Criteria cri, RedirectAttributes rttr) {
+        log.info("modify: " +board);
+
+        if(service.modify(board)) {
+            rttr.addFlashAttribute("result", "success");
+        }
+        rttr.addAttribute("pageNum", cri.getPageNum());
+        rttr.addAttribute("amount", cri.getAmount());
+        rttr.addAttribute("type", cri.getType());
+        rttr.addAttribute("keyword", cri.getKeyword());
+        return "redirect:/board/list";
+    }
+
+
+리다이렉트는 GET 방식으로 이루어져 추가적인 파라미터를 처리해야 한다.
+
+modify.jsp 에서 다시 목록으로 이동하는 경우에 필요한 파라미터만 전송하기 위해 <form> 태그의 모든 내용을 지우고
+다시 추가하는 방식을 이용했으니 keyword 와 type 역시 추가하도록 JavaScript 코드를 수정해야 한다.
+
+
+    $('button').on('click', function(e) {
+        e.preventDefault();
+
+        var operation = $(this).data("oper");
+
+        console.log(operation);
+
+        if(operation === 'remove') {
+            formObj.attr("action", "/board/remove");
+        } else if(operation === 'list') {
+            // move to list
+            formObj.attr("action", "/board/list").attr("method", "get");
+            var pageNumTag = $("input[name='pageNum']").clone();
+            var amountTag = $("input[name='amount']").clone();
+            var keywordTag = $("input[name='keyword']").clone();
+            var typeTag = $("input[name='type']").clone();
+
+            formObj.empty();
+            formObj.append(pageNumTag);
+            formObj.append(amountTag);
+            formObj.append(keywordTag);
+            formObj.append(typeTag);
+        }
+        formObj.submit();
+
+
+수정/조회 작업이 잘 유지되는지 확인한다.
+
+
+    UriComponentsBuilder 를 이용하는 링크 생성
+
+웹페이지에서 매번 파라미터를 유지하는 일이 번거롭다고 느껴지면 UriComponentsBuilder 클래스를 이용해보자.
+org.springframework.web.util.UriComponentsBuilder 는 여러 파라미터들을 연결해서 URL 형태로 만들어주는 기능을 가지고 있다.
+
+URL 을 만들어주면 리다이렉트를 하거나, <form> 태그를 사용하는 상황을 많이 줄여줄 수 있다.
+검색 조건을 유지하는 Criteria 클래스에 링크를 생성하는 기능을 추가한다.
+
+
+    public String getListLink() {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromPath("")
+                .queryParam("pageNum", this.pageNum)
+                .queryParam("amount", this.getAmount())
+                .queryParam("type", this.getType())
+                .queryParam("keyword", this.getKeyword());
+
+        return builder.toUriString();
+    }
+
+
+UriComponentsBuilder 는 queryParam() 이란 메소드를 이용해 파라미터를 쉽게 추가할 수 있다.
+예로 Criteria 가 생성된다 가정해 보자.
+
+
+    Criteria cri = new Criteria();
+
+    cri.setPageNum(3);
+    cri.setAmount(20);
+    cri.setKeyword("새로");
+    cri.setType("TC");
+
+
+위 데이터를 가진 Criteria 의 getListLink() 의 결과는 '?pageNum=3&amount=20&type=TC&keyword=%EC...' 와 같이
+GET 방식에 적합한 URL 인코딩된 결과로 만들어준다.
+
+getListLink() 를 이용하면 BoardController 의 modify() 와 remove() 에 간단하게 정리할 수 있다.
+
+
+    @PostMapping("/modify")
+    public String modify(BoardVO board, @ModelAttribute("cri") Criteria cri, RedirectAttributes rttr) {
+        log.info("modify: " +board);
+
+        if(service.modify(board)) {
+            rttr.addFlashAttribute("result", "success");
+        }
+
+        return "redirect:/board/list" + cri.getListLink();
+    }
+
+    @PostMapping("/remove")
+    public String remove(@RequestParam("bno") Long bno, @ModelAttribute("cri") Criteria cri, RedirectAttributes rttr) {
+        log.info("remove ..." + bno);
+        if(service.remove(bno)) {
+            rttr.addFlashAttribute("result", "success");
+        }
+
+        return "redirect:/board/list" + cri.getListLink();
+    }
+
+위는 URL 화면에서 유용한데, 주로 JavaScript 로 링크를 처리해야하는 상황에 사용한다.

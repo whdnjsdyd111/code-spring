@@ -1,0 +1,668 @@
+화면은 JSP 와 JavaScript(jQuery), CSS, HTML 을 이용해 작성한다.
+
+화면을 개발 전 전체 레이아웃이나 디자인이 반영된 상태로 개발하는 것을 추천한다.
+이런 경우 시간 들일 가능성이 적어진다.
+
+웹 다자이너가 없다면 BootStrap 을 이용하여 무료 디자인을 찾아보자.(https://startbootstrap.com/template-categories/all/).
+
+https://startbootstrap.com/theme/sb-admin-2 디자인 'SB Admin2' 를 이용할 예정이다.
+
+
+        11.1 목록 페이지 작업과 includes
+
+현재 게시물 리스트 URL 은 '/board/list' 이므로 최종적인 '/WEB-INF/views/board/list.jsp' 가 된다.
+해당 경로에 list.jsp 파일을 추가한다.
+
+
+    <%@ page contentType="text/html;charset=UTF-8" language="java" %>
+    <html>
+    <head>
+        <title>Title</title>
+    </head>
+    <body>
+        <h1>List Page</h1>
+    </body>
+    </html>
+
+
+list.jsp 는 우선 정상 URL 처리가 되는지 확인해야 하니 톰캣으로 'http://localhost:8000/board/list' 로 접근한다.
+
+
+        11.1.1 SB Admin 2 페이지 적용
+
+SB Admin2 의 pages 폴더에 tables.html 내용을 list 내용으로 복사하고 수정하여 실행한다.
+
+
+    <%@ page contentType="text/html;charset=UTF-8" language="java" %>
+    <html lang="en">
+    <head>
+
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+        <meta name="description" content="">
+        <meta name="author" content="">
+        ...
+
+
+브라우저에선 CSS 등 완전 깨진 상태인데 텍스트만 출력될 것이다.
+CSS, JS 파일들 경로를 수정하는 작업은 개발자 도구로 진행되고 이를 통해 Network 부분을 확인하고,
+페이지 '새로고침' 하면 잘못된 URL 정보를 확인할 수 있다.
+
+SB Admin2 의 CSS 경로는 'http://localhost:8000/vendor/bootstrap/css/bootstrap.min.css' 경로며
+현재 프로젝트에선 제대로 서비스될 수 없다. WebConfig 클래스에선 정적(static) 자원들 경로가 'resources' 라 지정되고 있기 때문이다.
+
+SB Admin2 압축을 풀어둔 파일들을 webapp 밑의 resources 파일로 복사해 넣는다.
+아직 경로를 수정하지 않았기 때문에 문제는 여전하다. list.jsp 파일에서 CSS 나 JS 파일 경로를 '/resource' 로 시작하게 수정한다.
+
+
+        11.1.2 includes 적용
+
+JSP 작성 시 많은 HTML 코드를 피하기 위해 include 지시자로 필요한 내용만 작성한다.
+현재 views 폴더에 includes 폴더를 작성하여 header.jsp 와 footer.jsp 를 선언한다.
+
+
+    header.jsp 적용
+
+header.jsp 는 페이지의 위쪽 HTML 내용을 처리하기 위해 작성한다.
+SB Admin2 sms <div> 중 id 속성값이 'content-wrapper' 부터 핵심적인 페이지 내용이므로 list.jsp 에서
+처음 부분 <div id='content-wrapper'> 라인까지 잘라 header.jsp 로 처리한다.
+
+
+    <%@include file="../includes/header.jsp"%>
+
+
+header.jsp 를 '<%@include ...' 로 처리한 뒤 다시 깨지지 않는지 확인한다.
+
+
+    footer.jsp 적용
+
+<div id='content-wrapper'> 가 끝나는 부분부터 footer.jsp 의 내용으로 작성한다.
+
+header.jsp 와 마찬가지로 수정 뒤에 브라우저로 정상 작동하는지 확인한다.
+
+
+        11.1.3 jQuery 라이브러리 변경
+
+JSP 페이지 작성 때 JavaScript 브라우저 내에 조작이 필요할 때가 많은데, 예제엔 footer 에 포함되어 있다는 점이다.
+성능을 손해보더라도 jQuery 를 header.jsp 에 선언해 두면 JSP 내에서 자유롭게 사용할 수 있으니 수정한다.
+
+
+    반응형 웹 처리
+
+SB Admin2 는 반응형으로 설계되어 모바일 용으로 변경되지만 jQuery 의 최신 버전을 사용한 상태에서 모바일 크기에 '새로 고침' 시
+메뉴가 펼쳐지는 문제가 발생한다.(현재 2021.01.13 사이드바 대체로 위 문제는 발생하지 않음)
+
+
+            11.2 목록 화면 처리
+
+list.jsp 페이지 일부에 여전히 HTML 태그가 많으니 JSTL 출력과 포맷을 적용할 태그만 남긴다.
+
+
+        11.2.1 Model 에 담긴 데이터 출력
+
+'/board/list' 실행 시 이미 BoardController 에서 게시물 목록을 'list' 로 담아 전달하였으니 이를 출력한다.
+출력은 JSTL 을 이용한다.
+list.jsp 내에 <tbody> 태그에 각 <tr>을 작성한다.
+
+
+    <c:forEach items="${list}" var="board">
+        <tr>
+            <td><c:out value="${board.bno}" /></td>
+            <td><c:out value="${board.title}"/></td>
+            <td><c:out value="${board.writer}" /></td>
+            <td><fmt:formatDate value="${board.regdate}" pattern="yyyy-MM-dd" /></td>
+            <td><fmt:formatDate value="${board.updateDate}" pattern="yyyy-MM-dd" /></td>
+        </tr>
+    </c:forEach>
+
+
+            11.3 등록 입력 페이지와 등록 처리
+
+게시물 등록은 POSt 방식 처리지만 화면 입력은 GET 방식으로 볼 수 있으니 BoardController 에 메소드를 추가한다.
+
+
+    @GetMapping("/register")
+    public void register() {
+
+    }
+
+
+register() 입력 페이지를 보여주는 역할만 하여 별도 처리가 필요없다.
+views 폴더의 includes 를 적용한 입력 페이지를 작성한다.
+
+
+    <!-- Board Register -->
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="card-header">Board Register</div>
+            <div class="card-body">
+                <form role="form" action="/board/register" method="post">
+                    <div class="form-group">
+                        <label>Title</label><input class="form-control" name="title">
+                    </div>
+                    <div class="form-group">
+                        <label>Text Area</label><textarea class="form-control" rows="3" name="content" ></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Writer</label><input class="form-control" name="writer">
+                    </div>
+                    <button type="submit" class="btn btn-outline-dark">Submit Button</button>
+                    <button type="reset" class="btn btn-outline-dark">Reset Button</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
+<form> 태그를 이용하여 데이터를 전송하며, <input> 이나 <textarea> 태그의 name 속성은 BoardVO 객체의 변수와 일치하게 한다.
+'/board/register' 화면이 제대로 출력되는지 확인한다.
+
+정상으로 나온다면 새 게시물을 등록하고 확인해본다.
+BoardController 의 POST 방식으로 동작하는 register() 는 redirect 하여 리스트 목록으로 돌아간다.
+
+게시물 등록하면 한글이 깨지는 문제가 발생한다.
+
+
+        11.3.1 한글 문제와 UTF-8 필터 처리
+
+새 게시물은 한글이 깨지는데, 브라우저에서 한글이 깨져 전송되거나 MVC 쪽에서 한글을 처리하는 필터를 등록해야 한다.
+
+브라우저 전송 시 개발자 도구의 Network 탭을 열어둔 상태로 데이터를 보내어 POST 방식으로 제대로 전송되는지 한글이 깨지는지 확인한다.
+
+브라우저에선 한글이 문제없는데, 문제는 Controller 혹은 데이터베이스 쪽 문제이다.
+
+BoardController 와 BoardServiceImpl 개발 시엔 이미 테스트 로그를 통해 필요한 기능을 기록해 두었으니,
+이를 확인해 본다.
+
+
+    BoardVO(bno=null, title=ë¦¬ì¼ ì ê²ìë¬¼,
+    content=2021-01-13 ì ê²ìë¬¼ìëë¤,., writer=whdnjsdyd, regdate=null, updateDate=null)
+
+
+로그에선 BoardController 에 전달될 때 이미 깨진 상태로 처리되는 것을 볼 수 있다.
+이 문제를 해결하기 위해 web.xml 에서 필터를 추가한다.
+
+
+	<!--  filter -->
+	<filter>
+		<filter-name>encoding</filter-name>
+		<filter-class>org.springframework.web.filter.CharacterEncodingFilter</filter-class>
+		<init-param>
+			<param-name>encoding</param-name>
+			<param-value>UTF-8</param-value>
+		</init-param>
+	</filter>
+
+	<filter-mapping>
+		<filter-name>encoding</filter-name>
+		<servlet-name>appServlet</servlet-name>
+	</filter-mapping>
+
+
+    Java 설정의 경우
+
+WebConfig 클래스에는 필터를 setServletFilters() 를 재정의하여 처리할 수 있다.
+
+
+    @Override
+    protected Filter[] getServletFilters() {
+        CharacterEncodingFilter characterEncodingFilter = new CharacterEncodingFilter();
+        characterEncodingFilter.setEncoding("UTF-8");
+        characterEncodingFilter.setForceEncoding(true);
+
+        return new Filter[] { characterEncodingFilter };
+    }
+
+
+한글 처리 후 다시 게시물을 작성하면 한글이 문제 없이 전송되는 것을 확인할 수 있다.
+
+
+        11.3.2 재전송(redirect) 처리
+
+등록 과정에 POST 방식 처리 과정은 다음과 같다.
+
+
+    Browser                             BoardController
+        │                                   │
+        │   입력항목들 전달                   │
+        │       →                           │
+        │                                   │
+        │   /board/list 로 Redirect         │
+        │       ←                           │
+        │                                   │
+        │   /board/list 호출                 │
+        │       →                           │
+        │                                   │
+        │   목록페이지                        │
+        │       ←                           │
+
+
+BoardController 에서 register() 메소드는 'redirect:/board/list' 를 전송할 때 이를 통보 받아 '/board/list' 로 이동한다.
+위와 같이 재전송 하지 않으면 '새로고침' 으로 동일한 내용을 계속 서버에 등록할 수도 있어(도배) 문제가 발생한다.
+
+따라서 등록, 수정, 삭제 작업은 처리 완료 후 다시 동일 내용을 전송할 수 없게 아예 URL 을 이동하는 방식을 이용한다.
+이 과정에 등록, 수정, 삭제 결과를 바로 알 수 있게 피드백 하기 위해 <div> 를 이용한 모달창을 작업한다.
+
+
+        11.3.3 모달창 보여주기
+
+최근 경고창보다 모달창을 보여주는 방식이 많이 사용되며, BootStrap 은 모달창을 간단히 사용할 수 있어
+목록 화면에 필요한 메시지를 보여주는 방법을 사용한다.
+
+모달창은 기본적으로 <div>를 화면에 특정 위치에 보이고, 배경에 색을 입혀 처리한다.
+원래 화면을 볼 수 없게 막으며 메시지를 보여주는데 효과적이다. 모달창은 footer.jsp 의 id 가 logoutModel 을 수정한다.
+
+
+    <div class="modal fade" id="myModal" tabindex="-1" role="dialog" aria-labelledby="exampleModalLabel"
+         aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exampleModalLabel">Modal Title</h5>
+                    <button class="close" type="button" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+                <div class="modal-body">처리가 완료되었습니다.</div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" type="button" data-dismiss="modal">Close</button>
+                    <a class="btn btn-primary" href="login.html">Save Changes</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+모달창을 보여주는 작업은 list 내에 jQuery 로 처리할 수 있다.
+
+
+    <script type="text/javascript">
+        $(document).ready(function() {
+            var result = '<c:out value="${result}"/>';
+
+            checkModal(result);
+
+            function checkModal(result) {
+                if(result === '') {
+                    return;
+                }
+
+                if(parseInt(result) > 0) {
+                    $('.modal-body').html("게시글 " + parseInt(result) + " 번이 등록되었습니다.");
+                    $('#myModal').modal("show");
+                }
+            }
+        });
+    </script>
+
+
+checkModal() 함수로 모달창을 보여주거나 내용 수정 후 보여주도록 작성한다.
+checkModal() 에 새로운 게시글 작성될 경우 RedirectAttributes 로 게시물 번호가 전송되어 이로 모달창의 내용을 수정한다.
+
+이제 '/board/register' 로 새로운 게시물을 작성하고 모달창이 보이는지 확인하자.
+
+
+        11.3.4 목록에서 버튼으로 이동하기
+
+마지막으로 목록 페이지 상단에 버튼을 추가하여 등록 작업을 시작할 수 있게 처리하자.
+
+우선 list.jsp 의 HTML 구조를 다음과 같이 수정한다.
+
+
+    <!-- DataTales Example -->
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <span class="m-0 font-weight-bold text-primary">DataTables Example</span>
+            <button id="regBtn" type="button" class="btn btn-sm float-right">Register New Board</button>
+        </div>
+
+
+그리고 하단에 jQuery 부분에 버튼 클릭 시 동작을 정의한다.
+
+
+        $('#regBtn').on("click", function() {
+            self.location = "/board/register";
+        });
+
+
+화면에 'Register New Board' 버튼 클릭 시 등록 페이지로 이동할 수 있다.
+
+
+            11.4 조회 페이지와 이동
+
+등록과 리스트 처리 후 목록 페이지에 GET 방식으로 특정 번호의 게시물을 조회하는 기능을 작성하자.
+
+
+        11.4.1 조회 페이지 작성
+
+조회 페이지엔 게시물 번호(bno)가 출력되는 점과 모든 데이터가 읽기 전용 처리되는 점이 있다.
+게시물 조회는 BoardController 에 get() 메소드로 구성되어 있다.
+
+
+    @GetMapping("/get")
+    public void get(@RequestParam("bno") Long bno, Model model) {
+        log.info("/get");
+        model.addAttribute("board", service.get(bno));
+    }
+
+
+views/board 폴더에 get.jsp 를 register.sjp 를 복사하여 작성한다.
+
+get.jsp 에 게시물 번호를 보여주는 필드를 추가하고 모든 데이터를 readOnly 로 지정한다.
+register.jsp 에 있는 <form> 태그는 조회 페이지에 그다지 필요하지 않으니 제거하는 대신 마지막엔 수정/삭제 페이지로 이동하거나
+원래 목록 페이지로 이동하는 페이지를 추가한다.
+
+
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="card-header">Board Register</div>
+            <div class="card-body">
+                    <div class="form-group">
+                        <label>Bno</label>
+                        <input class="form-control" name="bno" value='<c:out value="${board.bno}"/>' readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Title</label>
+                        <input class="form-control" name="title" value='<c:out value="${board.title}"/>' readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Text Area</label>
+                        <textarea class="form-control" rows="3" name="content" readonly>
+                                <c:out value="${board.content}"/></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Writer</label>
+                        <input class="form-control" name="writer" value='<c:out value="${board.writer}"/>' readonly>
+                    </div>
+                    <button data-oper="modify" class="btn btn-outline-dark">Modify</button>
+                    <button data-oper="list" class="btn btn-info">List</button>
+            </div>
+        </div>
+    </div>
+
+
+브라우저에 '/board/get?bno=1' 과 같이 게시물 번호로 파라미터 전달하여 페이지를 확인하자.
+
+화면 하단 버튼에 '/board/list' 와 '/board/modify?bno=xx' 와 같이 링크를 추가한다.
+
+
+    <button data-oper="modify" class="btn btn-outline-dark">
+        <a href='/board/modify?bno=<c:out value="${board.bno}"/>'>
+            Modify
+        </a>
+    </button>
+    <button data-oper="list" class="btn btn-info">
+        <a href="/board/list">
+            List
+        </a>
+    </button>
+
+
+        11.4.2 목록 페이지와 뒤로 가기 문제
+
+목록 페이지에 <a> 태그로 조회 페이지에 이동하게 처리한다. 트래픽을 고려해 목록 페이지에 새창을 띄워 조회 페이지로 이동하는
+방식을 선호하지만 정통적으론 현재 창 내에 이동하는 방식을 사용한다.
+
+의외로 이런 처리는 제대로 되지 않는 경우가 많은데, 예로 '뒤로 가기' 를 하면 다시 다운로드 되거나 경고창이 뜨는 경험이 있다.
+
+
+    목록에서 조회 페이지로 이동
+
+list.jsp 페이지를 조금 수정한다.
+
+
+    <td>
+        <a href='/board/get?bno=<c:out value="${board.bno}"/>'>
+            <c:out value="${board.title}"/>
+        </a>
+    </td>
+
+
+제목에 링크를 걸어 클릭 시 조회 페이지로 이동하게 했다.
+페이지 이동은 JavaScript 또는 <a> 태그로 직접 처리가 가능하고 '새창' 을 통해 보고 싶을 시
+<a> 태그 속성을 target='_blink' 를 지정하면 된다. <a> 태그와 <form> 태그엔 target 속성을 지정할 수 있는데
+'_blank' 는 새로운 창으로 처리된다.
+
+
+    뒤로 가기 문제
+
+동일 페이지엔 정상 처리되는 것 같지만 '등록 > 목록 > 조회' 까진 순조롭지만 '뒤로 가기' 를 선택할 때
+다시 게시물 등록 결과를 확인하는 방식으로 동작하는 것이다. 이 문제는 서버를 다시 호출하는 것이 아닌
+자신의 데이터를 다시 활용하기 때문이다.
+
+이를 해결하기 위해 window 의 history 객체를 현제 페이지에 모달창을 띄울 필요가 없다고 표시해 두는 방식을 이용한다.
+window 의 history 객체는 스택 구조로 동작한다.
+
+
+1. 사용자가 브라우저를 열면 '/board/list' 를 최초로 호출하여 history 에 쌓여 모달창을 보여줄 필요가 없다는 표시를 해둔다.
+2. '/board/register' 를 호출할 때 스택 상단에 '/board/register' 가 쌓여 '뒤로 가기' 실행 시 아래의
+    '/board/list' 가 보여지는데 심어둔 표시를  이용하여 모달창이 필요 없다는 것을 확인할 수 있다.
+3. 사용자 등록 후 '/board/list' 가 호출되어 '앞으로 가기', '뒤로 가기' 로 이동한 것이 아니어서 스택 상단에 추가된다.
+    등록 직후에 '/board/list' 로 이동하면 모달창이 동작한다.
+    모달창 보여준 후 모달창이 필요하지 않다는 표시를 해주어야 하ㅑㄴ다.
+
+코드는 다음과 같다.
+
+
+    checkModal(result);
+
+    history.replaceState({}, null, null);
+
+    function checkModal(result) {
+        if(result === '' || history.state) {
+            return;
+        }
+
+        if(parseInt(result) > 0) {
+            $('.modal-body').html("게시글 " + parseInt(result) + " 번이 등록되었습니다.");
+        }
+
+        $('#myModal').modal("show");
+    }
+
+
+기존과 달라진 것은 마지막에 history.replaceState() 부분과 checkModal() 에서 history.state 를 체크한 부분이다.
+JavaScript 처리는 우선 checkModal() 을 실행하는데, 등록된 후이면 모달창이 보이게 된다.
+
+
+            11.5 게시물의 수정/삭제 처리
+
+수정 작업은 조회 페이지에서 직접 처리하거나 별도 수정/삭제 페이지를 만들어서 수정과 삭제를 처리하는 방식을 많이 사용한다.
+최근 조회 페이지에서 댓글 처리가 많아지면 수정/삭제는 별개 페이지에서 하는 것이 일반적이다.
+조회 페이지엔 GET 방식으로 처리되는 URL 로 수정/삭제 버튼이 존재하는 화면을 볼 수 있게 제작한다.
+수정 혹 삭제 작업은 POSt 로 처리되고,결과는 다시 목록 화면으로 확인할 수 있게 제작한다.
+
+
+        11.5.1 수정/삭제 페이지로 이동
+
+BoardController 에 수정/삭제가 가능한 화면으로 이동하는 것은 조회 페이지와 같다.
+따라서 기존 get() 메소드를 조금 수정해서 화면을 구성한다.
+
+
+    @GetMapping({"/get", "/modify"})
+    public void get(@RequestParam("bno") Long bno, Model model) {
+        log.info("/get or modify");
+        model.addAttribute("board", service.get(bno));
+    }
+
+
+@GetMapping 이나 @PostMapping 등엔 URL 배열 처리가 가능하다.
+브라우저에 '/board/modify?bno=10' 과 같은 방식으로 처리하니, views 폴더 내에 modify.jsp 를 작성한다.
+
+get.jsp 와 같지만 수정이 가능한 '제목' 이나 '내용' 등이 readOnly 속성이 없도록 작성한다.
+
+
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="card-header">Board Modify</div>
+            <div class="card-body">
+                <form role="form" action="/board/modify" method="post">
+                    <div class="form-group">
+                        <label>Bno</label>
+                        <input class="form-control" name="bno" value='<c:out value="${board.bno}"/>' readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Title</label>
+                        <input class="form-control" name="title" value='<c:out value="${board.title}"/>'>
+                    </div>
+                    <div class="form-group">
+                        <label>Text Area</label>
+                        <textarea class="form-control" rows="3" name="content">
+                            <c:out value="${board.content}"/>
+                        </textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Writer</label>
+                        <input class="form-control" name="writer" value='<c:out value="${board.writer}"/>' readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>RegDate</label>
+                        <input class="form-control" name="regDate" value='<fmt:formatDate value="${board.regdate}"
+                                pattern="yyyy/MM/dd"/>' readonly >
+                    </div>
+                    <div class="form-group">
+                        <label>Update Date</label>
+                        <input class="form-control" name="regDate" value='<fmt:formatDate value="${board.updateDate}"
+                                pattern="yyyy/MM/dd"/>' readonly >
+                    </div>
+                    <button type="submit" data-oper="modify" class="btn btn-outline-dark">Modify</button>
+                    <button type="submit" data-oper="remove" class="btn btn-danger">Remove</button>
+                    <button type="submit" data-oper="list" class="btn btn-info">List</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+
+<form> 태그의 action 속성을 '/board/modify' 로 지정했지만, 삭제하면 '/board/remove' 로 action 이 작용되게 한다.
+그리고 게시물 '제목', '내용' 은 수정이 가능하게 했다.
+
+브라우저에 'http://localhost:8000/board/modify?bno=19' 에 정상 출력되는지 확인하자.
+JavaScript 버튼에 따라 동작할 수 있게 jQuery 를 수정한다.
+
+
+    <script type="text/javascript">
+        $(document).ready(function() {
+            var formObj = $('form');
+
+            $('button').on('click', function(e) {
+                e.preventDefault();
+
+                var operation = $(this).data("oper");
+
+                console.log(operation);
+
+                if(operation === 'remove') {
+                    formObj.attr("action", "/board/remove");
+                } else if(operation === 'list') {
+                    // move to list
+                    self.location = '/board/list';
+                    return;
+                }
+                formObj.submit();
+            });
+        });
+    </script>
+
+
+JavaScript 에서 <button> 태그의 'data-oper' 속성을 이용하여 원하는 기능 동작을 처리한다.
+<form> 태그 기본 동작이 submit 이라서 e.preventDefault() 로 기본 동작을 막고 마지막에 직접 submit() 을 수행한다.
+
+
+        11.5.2 게시물 수정/삭제 확인
+
+화면에서 게시물을 수정한 후에 'modify' 버튼을 통해 BoardController 에 수정을 요청한다.
+
+Modify 버튼 클릭 시 BoardController 에 전달된 파라미터들을 BoardVO 로 처리하게 되고,
+다음 수정된 값이 제대로 수집됐는지 확인할 수 있다.
+
+
+    modify ......BoardVO(bno=1, title=수정된w, content=수정된w, writer=user00, regdate=null, updateDate=null)
+
+
+게시물 수정 후 다시 '/board/list' 화면에 이동하게 된다. 이 경우 처리는 이미 완료되어 모달창으로 메시지를 확인할 수 있다.
+
+화면에 'Remove' 버튼 클릭 시 <form> 탸그에 action 값이 '/board/remove' 가 되어 데이터를 전송한다.
+물론 BoardController 에 bno 값이 하나만 필요하여 문제는 없다. 아래와 같이 삭제된 로그가 기록될 것이다.
+
+
+    controller.BoardController.remove remove ...18
+    service.BoardServiceImpl.remove remove ......18
+
+
+        11.5.3 조회 페이지에 <form> 처리
+
+게시물 조회 페이지에 수정 삭제가 필요한 페이지로 링크 처리해야 한다.
+직접 버튼 링크를 처리하는 방식을 사용했지만 다양한 상황 처리를 위해 <form> 태그를 이용하여 수정한다.
+
+
+    <button data-oper="modify" class="btn btn-outline-dark">
+        <a href='/board/modify?bno=<c:out value="${board.bno}"/>'>
+            Modify
+        </a>
+    </button>
+    <button data-oper="list" class="btn btn-info">
+        <a href="/board/list">
+            List
+        </a>
+    </button>
+    <form id="operForm" action="/board/modify" method="get">
+        <input type="hidden" id="bno" name="bno" value='<c:out value="${board.bno}"/>'>
+    </form>
+
+
+브라우저에선 <form> 태그가 보이진 않고 버튼만 보인다.
+서용자가 버튼 클릭 시 operForm 이란 id를 가진 <form> 태그를 전송해야 하니 JavaScript 처리가 필요하다.
+
+
+    $(document).ready(function() {
+        var operForm = $('#operForm');
+
+        $("button[data-oper='modify']").on("click", function(e) {
+            operForm.attr("action", "/board/modify").submit();
+        });
+
+        $("button[data-oper='list']").on("click", function(e) {
+            operForm.find('#bno').remove();
+            operForm.attr("action", "/board/list");
+            operForm.submit();
+        });
+    });
+
+
+사용자가 수정 버튼 누를 시 bno 값을 같이 전달하며 <form> 태그를 submit 처리한다.
+사용자가 list 이동할 경우 아무 데이터도 필요하지 않고 <form> 태그 내의 bno 태그를 지우고 submit 으로 리스트 페이지에 이동한다.
+
+
+        11.5.4 수정 페이지에서 링크 처리
+
+수정 페이지에 사용자가 다시 목록 페이지로 이동할 수 있도록 하기 위해 JavaScript 내용을 조금 수정한다.
+
+
+    $(document).ready(function() {
+        var formObj = $('form');
+
+        $('button').on('click', function(e) {
+            e.preventDefault();
+
+            var operation = $(this).data("oper");
+
+            console.log(operation);
+
+            if(operation === 'remove') {
+                formObj.attr("action", "/board/remove");
+            } else if(operation === 'list') {
+                // move to list
+                formObj.attr("action", "/board/list").attr("method", "get");
+                formObj.empty();
+            }
+            formObj.submit();
+        });
+    });
+
+
+수정 내용은 클릭한 버튼이 List 일 경우 action 속성과 method 속성을 변경한다.
+
+'/board/list' 로 이동은 아무 파라미터가 없어 <form> 태그 내용은 삭제한 상태에서 submit() 을 진행한다.
+이후 코드는 실행되지 않아 return 으로 제어한다.

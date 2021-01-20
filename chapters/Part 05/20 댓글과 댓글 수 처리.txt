@@ -1,0 +1,139 @@
+실습할 예제엔 댓글 수를 추가해야 하므로 tbl_board 테이블에 댓글 수인 replyCnt 라는 컬럼을 추가하자.
+
+
+    ALTER TABLE tbl_board ADD (replycnt NUMBER DEFAULT 0);
+
+
+기존 댓글이 존재하면 replyCnt 에 반영해야 하므로 다음 쿼리를 실행한다.
+
+
+    UPDATE tbl_board SET replycnt = (SELECT COUNT(rno) FROM tbl_reply WHERE tbl_reply.bno = tbl_board.bno);
+
+
+            20.1 프로젝트 수정
+
+데이터베이스 수정되었으니 BoardVO 와 MyBatis SQL, BoardService 등을 수정할 필요가 있다.
+
+
+        20.1.1 BoardVO, BoardMapper 수정
+
+'src/main/java/domain' 패키지에 BoardVO 클래스엔 댓글 숫자를 의미하는 인스턴스 변수를 하나 추가한다.
+
+
+    @Data
+    public class BoardVO {
+        private Long bno;
+        private String title;
+        private String content;
+        private String writer;
+        private Date regdate;
+        private Date updateDate;
+
+        private int replyCnt;
+    }
+
+
+BoardMapper 인터페이스엔 새롭게 replyCnt 를 업데이트하는 메소드를 추가해야 한다.
+
+
+    public void updateReplyCnt(@Param("bno") Long bno, @Param("amount") int amount);
+
+
+updateReplyCnt() 는 해당 게시물 번호 bno 와 증가나 감소를 의미하는 amount 변수를 파라미터로 받는다.
+댓글이 등록되면 1 증가, 삭제되면 1이 감소하기 때문이다.
+MyBatis 의 SQL 처리를 위해선 기본적으로 하나의 파라미터 타입을 사용하기 때문에 2개 이상의 데이터를 전달하려면
+@Param 이란 어노테이션으로 처리할 수 있다.
+
+댓글이 추가되면 반정규화된 tbl_board 테이블에 replyCnt 컬럼이 업데이트되야 하므로 BoardMapper.xml 에 updateReplyCnt 구문을 추가한다.
+
+
+    <select id="updateReplyCnt">
+        UPDATE tbl_board SET replycnt = replycnt + #{amount} WHERE bno = #{bno}
+    </select>
+
+
+BoardMapper.xml 게게시물 목록을 리하는 부분에 새롭게 replycnt 컬럼을 추가하도록 인라인뷰 내에 추가하고
+바깥쪽 SELECT 에도 추가한다.
+
+
+    <select id="getListWithPaging" resultType="domain.BoardVO">
+        <![CDATA[
+            SELECT bno, title, content, writer, regdate, updatedate, replycnt
+            FROM (
+                SELECT /*+ INDEX_DESC(tbl_board pk_board) */
+                ROWNUM rn, bno, title, content, writer, regdate, updatedate, replycnt
+                FROM tbl_board WHERE
+        ]]>
+
+        <include refid="criteria"></include>
+
+        <![CDATA[
+            ROWNUM <= #{pageNum} * #{amount}
+            )
+            WHERE rn > (#{pageNum} - 1) * #{amount}
+        ]]>
+    </select>
+
+
+        20.1.2 ReplyServiceImpl 트랜잭션 처리
+
+ReplyServiceImpl 클래스는 기존 ReplyMapper 만을 이용했지만, 반정규화 처리되면서 BoardMapper 를 같이
+이용해야 하는 상황이 되었다. ReplyServiceImpl 에 새로운 댓글이 추가되거나 삭제되는 상황이면 BoardMapper 와 ReplyMapper 를
+같이 처리하고, 이 작업을 트랜잭션으로 차리되어야 한다.
+
+ReplyServiceImpl 클래스를 수정한다.
+
+
+    @Service
+    @Log
+    @AllArgsConstructor
+    public class ReplyServiceImpl implements ReplyService {
+        private ReplyMapper replyMapper;
+
+        private BoardMapper boardMapper;
+
+        @Transactional
+        @Override
+        public int register(ReplyVO vo) {
+            log.info("register ... " + vo);
+
+            boardMapper.updateReplyCnt(vo.getBno(), 1);
+
+            return replyMapper.insert(vo);
+        }
+
+        ...
+
+        @Transactional
+        @Override
+        public int remove(Long rno) {
+            log.info("remove ... " + rno);
+
+            ReplyVO vo = replyMapper.read(rno);
+
+            boardMapper.updateReplyCnt(vo.getBno(), -1);
+            return replyMapper.delete(rno);
+        }
+
+
+댓글 등록은 ReplyVO 의 게시물 번호로 댓글을 추가하며 수를 늘리고, 삭제는  댓글 번호를 통해 해당 댓글의 게시물을 알아낸 후
+수를 줄인다.
+
+
+    20.1.3 화면 수정
+
+BoardController 나 ReplyController 자체는 수정할 것이 없지만 게시물 목록 화면에서 댓글 숫자를 출력될 수 있도록 수정해줄 필요가 있다.
+
+views 폴더 내 board/list.jsp 파일 일부에 댓글의 숫자를 반영한다.
+
+
+    <c:forEach items="${list}" var="board">
+        <tr>
+            <td><c:out value="${board.bno}" /></td>
+            <td>
+                <a class="move" href='${board.bno}'>
+                        ${board.title} <b>[ ${board.replyCnt} ]</b>
+                </a>
+            </td>
+
+

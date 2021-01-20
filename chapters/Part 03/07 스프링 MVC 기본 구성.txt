@@ -1,0 +1,176 @@
+이번 단원에선 스프링 MVC 로 전체 데이터 흐름을 알고 하자.
+브라우저에 전송한 데이터는 어느 단계를 거쳐 실행되는지 이해하면 빠른 대처와 대안을 찾을 수 있다.
+
+일반적인 웹 프로젝트는 3-tier(티어) 방식으로 구성한다.
+
+
+    Presentation    ↔   Business    ↔   Persistence tier
+
+
+Presentation Tier(화면 계층)는 화면을 보여주는 기술이며 Servlet/JSP 나 스프링 MVC 가 담당한다.
+프로젝트에 맞게 앱이나 CS(Client-Server) 로 구성된다.
+
+Business Tier(비즈니스 계층)는 순수 비즈니스 로직을 담당한다. 고객의 요구 사항을 반영하는 계층으로 요구 사항과 일치해야 한다.
+이 영역은 주로 'xxxService' 와 같은 이름이며 고객이 사용하는 용어 그대로 사용하는 것이 좋다.
+
+Persistence Tier(영속 또는 데이터 계층)는 데이터 보관 또는 사용 방식의 설계가 들어가는 계층이다.
+데이터베이스를 많이 이용하지만 경우에 따라 네트워크 호출, 원격 등의 기술이 접목될 수 있다.
+이 영역은 MyBatis 와 mybatis-spring 을 이용한다.
+
+계층의 설명은 스프링 MVC 에 맞춰 다음 구조를 이룬다.
+
+
+    Spring MVC  ↔   spring-mybatis  ↔   MyBatis ↔   DB
+                        ↕
+                    Spring Core
+
+
+스프링 MVC 영역은 Presentation Tier 를 구성하며, 각 영역은 별도의 설정을 가지는 단위이다.
+이전엔 root-context.xml, servlet-context.xml 등이 해당 영역의 설정 파일을 담당한다.
+스프링 Core 영역이 흔히 POJO(Plain-Old-Java-Object) 영역이며 스프링 의존성 주입을 이용해서 객체 간의 연관 구조를 사용한다.
+MyBatis 영역은 현실적으로 mybatis-spring 을 이용하여 구성하는 영역이며, SQl 담당 구조이다.
+
+
+            7.1 각 영역의 Naming Convention(명명 규칙)
+
+프로젝트를 위와 같은 3-tier 로 구성하는 일반적인 설설명은 '유지 보수' 에 대한 필요성 때문이다.
+각 영역은 독립적으로 설계되어 나중에 특정 기술이 변해도 필요한 부분만 부품 교환하는 식의 방식이다.
+따라서 각 영역은 설계 당시부터 영역을 구분하여, 해당 연결 부위는 인터페이스를 이용해서 설계하는 것이 일반적인 구성 방식이다.
+
+프로젝트 진행 시 다음 네이밍 규칙으로 작성한다.
+
+
+    - xxxController : 스프링 MVC 에 동작하는 Controller 클래스 설계 시 사용
+    - xxxService, xxxServiceImpl : 비즈니스 영역의 인터페이스. 이를 구현한 클래스는 뒤에 Impl 을 붙임
+    - xxxDAO, xxxRepository : DAO(Data-Access-Object) 나 Repository(저장소) 란 이름으로 영역을 따로 구성하는 것이 보편적
+        이 책에선 DAO 대신 MyBatis 의 Mapper 인터페이스 활용
+    - VO, DTO : VO 와 DTO 는 데이터를 담는 객체를 의미. 다만, VO 경우 Read Only 목적이 강하고, 데이터 자체도 Immutable(불변)하게
+        설계하는 것이 정석. DTO 는 주로 데이터 수집 용도가 강하고, 웹 화면 로그인 정보는 DTO 로 처리하는 방식이다.
+        이 책에선 VO 라는 이름을 사용한다.
+
+
+        7.1.1 패키지의 Naming Convention
+
+패키지 구성은 프로젝트 크기나 구성원에 의해 결정되며 예로 규모가 작으면 Controller 영역을 패키지로 설계하고
+Service 영역 등은 하나의 패키지로 설계할 수 있다.
+반면 규모가 커지면 Service 와 Controller 들이 많아 혼재할 시 비즈니스를 단위별로 구분하여(비즈니스 단위 별로 패키지 작성)
+다시 내부에 Controller, Service 패키지를 나누는 방식을 이용한다.
+이런 방식은 당담자가 명확해지고, 독립적인 설정을 가져 큰 규모에 적합하다.
+다만 패키지가 많아지고 구성이 복잡한 단점이 있다.
+
+이 책의 예제는 같은 패키지를 구성할 것이다.
+
+
+    config          - 프로젝트 관련 설정 클래스들 보관 패키지
+    controller      - 스프링 MVC Controller 보관 패키지
+    service         - 스프링 Service 인터페이스와 구현 클래스 패키지
+    domain          - VO, DTO 클래스 패키지
+    persistence     - MyBatis Mapper 인터페이스 패키지
+    exception       - 웹 관련 예외 처리 패키지
+    aop             - 스프링 AOP 관련 패키지
+    security        - 스프링 Security 패키지
+    util            - 각종 유틸리티 클래스 관련 패키지
+
+
+            7.2 프로젝트를 위한 요구사항
+
+프로젝트 진행 전 요구사항 분석 설계가 중요하며, 이를 통해 프로젝트 범위를 정한다.
+
+요구사항은 방대해질 수 있어 단계를 구분해주는 것이 좋다. 팀원 경험이 풍부하면 초기 버전에 많은 기능을 포함시킬 수 있고,
+그렇지 못하면 최대한 단순하고 눈에 보이는 결과를 만들어 내는 형태가 좋다.
+
+요구사항은 문장으로 정리하는 것이 좋다. 주어는 '고객', 목적어는 '대상' 이 된다.
+'대상' 은 결국 데이터베이스 설계와 시스템 설계에 중요한 용어가 된다(다른 용어로 도메인)
+예로 게시판의 요구사항을 다음과 같이 정리할 수 있다.
+
+
+    - 고객은 새로운 게시물을 등록할 수 있어야 한다.
+    - 고객은 특정한 게시물을 조회할 수 있어야 한다.
+    - 고객은 작성한 게시물을 삭제할 수 있어야 한다.
+    - 기타 등등
+
+
+'대상' 은 게시물이되므로 이 구조를 판단하여 데이터베이스 테이블을 설계한다.
+예로 'tbl_board' 란 테이블을 설계하고, 테이블 관련 VO 클래스 역시 BoardVO 같은 이름으로 설계될 수 있다.
+게시물 관련 로직은 service.BoardService 가 될 수 있고 controller.BoardController 란 클래스로 연속적인 과정을 거친다.
+
+
+        7.2.1 요구사항에 따른 화면 설계
+
+요구사항의 용어를 기준으로 테이블이나 클래스가 정해지듯 화면에도 영향을 미친다.
+'어떤 내용을 입력하고 어떤 게시물을 등록할 지' 에 관한 세부적인 설계가 되고, 이를 기준으로 테이블이나 클래스의 멤버 변수들을 설계한다.
+실제 프로젝트에선 '스토리보드' 를 만들게된다.
+
+화면 설계엔 주로 Mock-up(목업) 툴을 이용하는 경우가 많다.
+대표적으로 Power Point, Balsamiq studio, Pencil Mockup 등의 SW 로 작성하는 것이 좋다.
+
+각 화면은 사용자가 입력할 값이나 흐름이 설계된다.
+이 흐름을 URL 로 구성하게 되는데 이 경우 GET/POST 방식에 대해 언급하는 것이 좋다.
+
+
+            7.3 예제 프로젝트 구성
+
+
+        7.3.1 pom.xml 수정
+
+Java 버전, spring-tx, spring-jdbc, spring-test, MyBatis, HikariCP, mybatis-spring, Log4jdbc, Lombok, junit,
+javax.servlet-api, plugins 등을 수정 또는 추가한다.
+
+
+        7.3.2 테이블 생성과 Dummy(더미) 데이터 생성
+
+SQL Developer 로 book_ex 계정을 통해 테이블을 생성한다. 게시물 마다 고유 번호가 필요하며, 오라클의 경우 시퀀스를 이용해서
+이 작업을 처리한다.
+
+
+    CREATE SEQUENCE seq_board;
+
+    CREATE TABLE tbl_board (
+      bno NUMBER(10, 0),
+      title VARCHAR2(200) NOT NULL,
+      content VARCHAR2(2000) NOT NULL,
+      writer VARCHAR2(50) NOT NULL,
+      regdate DATE DEFAULT SYSDATE,
+      updatedate DATE DEFAULT SYSDATE
+    );
+
+    ALTER TABLE tbl_board ADD CONSTRAINT pk_board PRIMARY KEY(bno);
+
+
+시퀀스는 일반적으로 'sql_' 와 같이 사용하는 것이 일반적이다. 테이블 생성 시에는 'tbl_' 로 시작하거나 't_' 와 같이
+구문 가능한 단어를 앞에 붙여 주는 것이 좋다. tbl_board 테이블은 고유 번호를 가지기 위해 bno 컬럼을 지정했고,
+제목(title), 내용(content), 작성자(writer) 를 컬럼으로 지정한다.
+테이블 설계 시 생성 시간(regdate)와 레코드의 최종 수정 시간(updatedate) 컬럼을 작성한다.
+기본값으로 sysdate 를 지정해서 레코드 생성된 시간은 자동 기록한다.
+
+테이블의 생성 이후 'alter table..' 를 이용해 Primary Key 를 지정했다.
+PK 지정 시 'pk_board' 란 이름을 부여하는데, 중요하게 사용되니 의미를 반드시 구분하자.
+
+
+    더미 테이블 추가
+
+테이블 생성 후 여러 데이터를 추가하는데 의미 없는 데이터를 흔히 '토이 데이터' 혹은 '더미 데이터' 라고 한다.
+게시물이 많을 수록 유용하지만, 간단히 다음 방식을 이용해서 더미 데이터를 추가한다.
+
+
+    INSERT INTO tbl_board (bno, title, content, writer)
+    VALUES (seq_board.NEXTVAL, '테스트 제목', '테스트 내용', 'user00');
+
+
+tbl_board 의 bno 칼럼은 매번 새로운 값이 들어가야 해서 seq_board.nextval 으로 매번 새로운 번호를 얻는다.
+regdate 와 updatedate 컬럼은 기본적으로 현재 시간이 들어가 별도 작업이 필요하지 않다.
+MySQL 과 달리 오라클은 커밋을 해주어야 한다.
+
+여러먼 인서트하여 데이터를 넣어 준 후 커밋을 해주자.
+
+
+            7.4 데이터베이스 관련 설정 및 테스트
+
+root.context 를 PART 01 과 같이 설정한다.
+
+
+            7.5 Java 설정 이용할 경우
+
+Java 이용 시 pom.xml 은 동일하지만 다른 xml 파일들을 삭제하고 config 패키지를 생성한다.
+그리고 pom.xml 내에 plugins 에서 maven-war-plugin 아키텍쳐에 failOnMissingWebXml 에 false 속성을 추가한다.
+그 후 WebConfig, RootConfig, ServletConfig 을 작성한다. 이 클래스들의 설정의 PART 01, 02 와 같다.

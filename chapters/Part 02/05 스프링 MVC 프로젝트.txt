@@ -1,0 +1,270 @@
+    XML 설정                                      Java 설정
+
+    Spring MVC      - servlet-context.xml       Spring MVC      ─ ServletConfig.class
+    Spring Core     ┐                           Spring Core     ┐
+    MyBatis         ┘ root-context.xml          MyBatis         ┘   RootConfig.class
+
+
+            5.1 스프링 MVC 프로젝트의 내부 구조
+
+스프링 MVC 프로젝트는 내부적으로 root-context.xml 로 사용하는 일반 Java 영역과 servlet-context.xml 로 설정하는
+Web 관련 영역을 같이 구동하게 된다.
+
+
+        WebApplicationContext
+
+        MVC 설정  ↔   일반 설정
+
+
+바깥쪽 WebApplicationContext 존재는 기존 MVC 설정을 포함하는 구조로 만들어 진다.
+스프링은 웹을 목적으로 나눈 프레임워크가 아니라서 영역을 완전 분리하고 연동하는 방식으로 구현한다.
+
+Java 설정 등을 이용하기 위해 2.5 버전은 주석 또는 삭제하고 3.1.0 버전 이상을 사용힌다.
+
+
+    <!--
+    <dependency>
+        <groupId>javax.servlet</groupId>
+        <artifactId>servlet-api</artifactId>
+        <version>2.5</version>
+        <scope>provided</scope>
+    </dependency>
+    -->
+    <dependency>
+        <groupId>javax.servlet</groupId>
+        <artifactId>javax.servlet-api</artifactId>
+        <version>3.1.0</version>
+    </dependency>
+
+
+Maven 컴파일 옵션은 1.8 버전으로 변경하고 프로젝트 'Maven' 메뉴에서 'update project' 를 실행한다.
+
+
+    <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.8.1</version>
+        <configuration>
+            <source>1.8</source>
+            <target>1.8</target>
+            <compilerArgument>-Xlint:all</compilerArgument>
+            <showWarnings>true</showWarnings>
+            <showDeprecation>true</showDeprecation>
+        </configuration>
+    </plugin>
+
+
+웹 프로젝트의 경로를 '/' 경로로 실행할 수 있게 하기 위해서 Context Path 를 '/' 경로가 인식되는지 Tomcat 을 실행한다.
+
+
+        5.1.1 Java 설정 이용할 경우
+
+web.xml, servlet-context.xml, root-context.xml 을 제거하고 'src/main/java/config' 패키지에 RootConfig, WebConfig 을
+생성하고 pom.xml 에 <plugin> 을 추가한다.
+
+
+    <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-war-plugin</artifactId>
+        <version>3.2.2</version>
+        <configuration>
+            <failOnMissingWebXml>false</failOnMissingWebXml>
+        </configuration>
+    </plugin>
+
+
+Spring MVC 이용할 경우 servlet-context.xml 대신 ServletConfig 클래스를 생성한다.
+이 클래스는 servlet-context.xml 설정의 모든 내용을 담아야 한다.
+
+    - @EnableWebMvc 어노테이션과 WebMvcConfigurer 인터페이스를 구현하는 방식(WebMvcConfigurerAdapter 추상 클래스였으나
+        스프링 5.0 부터 Deprecated 됨)
+    - @Configuration 과 WebMvcConfigurationSupport 클래스를 상속하는 방식 - 일반 @Configuration 우선 순위가 구분되지 않을 경우
+
+
+예제는 @EnableWebMvc 어노테이션으로 제작한다.
+
+
+    import org.springframework.context.annotation.ComponentScan;
+    import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+    import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+    import org.springframework.web.servlet.config.annotation.ViewResolverRegistry;
+    import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+    import org.springframework.web.servlet.view.InternalResourceViewResolver;
+    import org.springframework.web.servlet.view.JstlView;
+
+    @EnableWebMvc
+    @ComponentScan(basePackages = {"controller"})
+    public class ServletConfig implements WebMvcConfigurer {
+        @Override
+        public void configureViewResolvers(ViewResolverRegistry registry) {
+            InternalResourceViewResolver bean = new InternalResourceViewResolver();
+            bean.setViewClass(JstlView.class);
+            bean.setPrefix("/WEB-INF/views/");
+            bean.setSuffix(".jsp");
+            registry.viewResolver(bean);
+        }
+
+        @Override
+        public void addResourceHandlers(ResourceHandlerRegistry registry) {
+            registry.addResourceHandler("/resources/**").addResourceLocations("/resources/");
+        }
+    }
+
+
+WebMvcConfigurer 는 스프링 MVC 와 관련된 설정을 메소드로 오버라이드 하는 형태를 이용할 때 사용한다.
+ServletConfig 클래스 역시 @ComponentScan 을 이용해서 다른 패키지에 작성된 빈을 인식할 수 있다.
+
+ServletConfig 클래스를 실행하려면 WebConfig 의 설정은 아래와 같이 ServletConfig 를 이용하고,
+스프링 MVC 경로도 '/' 로 바꾼다.
+
+
+    import org.springframework.web.servlet.support.AbstractAnnotationConfigDispatcherServletInitializer;
+
+    public class WebConfig extends AbstractAnnotationConfigDispatcherServletInitializer {
+        @Override
+        protected Class<?>[] getRootConfigClasses() {
+            return new Class[] {RootConfig.class};
+        }
+
+        @Override
+        protected Class<?>[] getServletConfigClasses() {
+            return new Class[] {ServletConfig.class};
+        }
+
+        @Override
+        protected String[] getServletMappings() {
+            return new String[] {"/"};
+        }
+    }
+
+
+이후 작업은 XML 방식과 동일하게 Tomcat 에서 실행한다.
+
+
+            5.2 예제 프로젝트의 로딩 구조
+
+프로젝트 구동 시 web.xml 은 Tomcat 구동 관련 설정이고 root-context.xml, servlet-context.xml 파일은 스프링 관련 설정이다.
+프로젝트 구종은 web.xml 부터 시작하며 가장 먼저 Context Listener 가 등록되어 있다.
+
+
+	<!-- The definition of the Root Spring Container shared by all Servlets and Filters -->
+	<context-param>
+		<param-name>contextConfigLocation</param-name>
+		<param-value>/WEB-INF/spring/root-context.xml</param-value>
+	</context-param>
+
+	<!-- Creates the Spring Container shared by all Servlets and Filters -->
+	<listener>
+		<listener-class>org.springframework.web.context.ContextLoaderListener</listener-class>
+	</listener>
+
+
+<context-param> 엔 root-context.xml 경로, <listener> 에는 스프링 MVC ContextLoaderListener 가 등록돼 있다.
+ContextLoaderListener 는 웹 구동 시 같이 동작되어 바로 로그 출력을 확인할 수 있다.
+
+root-context.xml 이 처리되면 파일에 있는 빈(Bean) 설정들이 동작하게 됨.
+정의된 빈은 스프링 영역(context)에 생성되고 객체 간 의존성이 처리된다.
+이후 스프링 MVC 에서 DispatcherServlet 이란 서블릿 관련 설정이 동작한다.
+
+
+    <!-- Processes application requests -->
+    <servlet>
+        <servlet-name>appServlet</servlet-name>
+        <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+        <init-param>
+            <param-name>contextConfigLocation</param-name>
+            <param-value>/WEB-INF/spring/appServlet/servlet-context.xml</param-value>
+        </init-param>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+
+    <servlet-mapping>
+        <servlet-name>appServlet</servlet-name>
+        <url-pattern>/</url-pattern>
+    </servlet-mapping>
+
+
+org.springframework.web.servlet.DispatcherServlet  클래스는 스프링 MVC 구조에 핵심 역할을 하는 클래스다.
+내부적 웹 처리에 사용되는 파일이 servlet-context.xml 인데 실행 시에 DispatcherServlet 에서 XmlWebApplicationContext 를
+이용하여 servlet-context.xml 을 로딩하고 해석하기 시작한다.
+이 과정에서 객체들은 기존 객체들과 연동된다.
+
+
+            5.3 스프링 MVC 의 기본 사상
+
+Servlet/JSP 에선 HttpServletRequest/HttpServletResponse 타입 객체를 이용해 브라우저에 전송한 정보를 처리하는 방식으로
+스프링 MVC 는 가운데 계층을 더한 형태다.
+
+
+    개발자 코드 영역       개발자는 Servlet/JSP 의 API 에 신경쓰지 않고 웹 제작
+    □ □ □ □ □ □ □
+    --------------
+    Spring MVC          Spring MVC 내부적으로 Servlet/JSP 처리
+    --------------
+    Servlet/JSP
+
+
+스프링 MVC 는 개발자가 Servlet/JSP 사용이 현저히 줄어든다. 스프링은 중간 역할이라 많은 코드 없이 원하는 기능을 구현할 수 있다.
+개발자 코드는 스프링 MVC 에서 동작하여 특정 클래스 상속이나 인터페이스 구현하는 형탸로 개발할 수 있었지만,
+어노테이션 방식으로 최근 개발엔 어노테이션, XML 등의 설정만으로 개발이 가능하게 된다.
+
+
+            5.4 모델 2와 스프링 MVC
+
+스프링 MVC 는 내부적으로 Servlet API 를 활용한다. 모델 2 방식은 '로직과 화면을 분리' 하는 스타일로 개발하는 형식이다.
+모델 2 방식은 MVC 구조를 사용하는데 아래와 같다.
+
+
+                    2. Request 처리를 위한 로직 연동
+    1. Request  →   Controller  ↔       3. 순수 데이터 처리 로직
+                        ↓       Model
+                    4. 처리된 데이터를 View로 전달
+    5. Response ←   View
+
+
+먼저 Controller 를 호출하는데, 이는 View 를 교체해도 사용자는 호출하는 URL 에 변화가 없게 해준다.
+컨트롤러는 필요한 데이터를 모델로 처리하고 Response 로 View 에 전달한다.
+
+
+                    2
+    1               ↔   HandlerMapping          4
+    ↔   DispatcherServlet   3 ↔ HandlerAdapter  ↔   Controller
+    7       ↓       ↔
+            View    6   ViewResolver
+            ↓
+        JSP 및 기타
+
+
+    1. 사용자 Request 는 Front-Controller 인 DispatcherServlet 으로 처리.
+        생성된 프로젝트는 web.xml 에 보면 모든 Request 를 DispatcherServlet 로 받도록 처리됨.
+
+        <servlet>
+            <servlet-name>appServlet</servlet-name>
+            <servlet-class>org.springframework.web.servlet.DispatcherServlet</servlet-class>
+            <init-param>
+                <param-name>contextConfigLocation</param-name>
+                <param-value>/WEB-INF/spring/appServlet/servlet-context.xml</param-value>
+            </init-param>
+            <load-on-startup>1</load-on-startup>
+        </servlet>
+
+    2, 3. HandlerMapping 은 Request 처리 담당 컨트롤을 찾기 위해 존재.
+        HandlerMapping 인터페이스를 구현한 RequestMappingHandlerMapping 같은 경우 개발자가 @RequestMapping 어노테이션이
+        적용된 것을 기준으로 판단. 적절한 컨트롤러를 찾으면 HandlerAdapter 를 이용해 컨트롤러 동작시킴
+
+    4. Controller 는 개발자가 작성한 Request 를 처리하는 로직을 작성. View 에 전달하는 데이터는 Model 에 담아서 전달함.
+        Controller 는 다양한 타입의 결과를 반환하는데 ViewResolver 를 이용하게 된다.
+
+    5. ViewResolver 는 Controller 가 반환한 결과에 View 를 통해 처리하여 해석하는 역할.
+        가장 흔하게 servlet-context.xml 에 정의된 InternalResourceViewResolver 이다.
+
+        <beans:bean class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+            <beans:property name="prefix" value="/WEB-INF/views/" />
+            <beans:property name="suffix" value=".jsp" />
+        </beans:bean>
+
+    6, 7. View 는 실제 응답할 데이터를 Jsp 등으로 생성하는 역할. 만들어진 응답은 DispatcherServlet 을 통해 전송
+
+
+위는 모든 Request 가 DispatcherServlet 로 설계되는데, 이런 방식을 Front-Controller 라 한다.
+Front-Controller 패턴은 모든 Request 처리를 분배하여 엄격한 구조를 만들 수 있다.

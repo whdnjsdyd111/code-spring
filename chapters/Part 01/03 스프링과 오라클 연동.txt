@@ -1,0 +1,194 @@
+            3.1 오라클 설치 및 설정
+
+오라클 SQL Developer 에서 사용자 및 패스워드를 book_ex 로 생성한다.
+
+
+            3.3 프로젝트 JDBC 연결
+
+프로젝트에 ojdbc jar 을 추가해 준다.
+
+
+        3.3.1 JDBC 테스트 코드
+
+데이터베이스 연결을 확인하기 위해 테스트 코드를 작성한다. test/java/persistence 에 JDBCTests 클래스를 추가한다.
+
+
+    import lombok.extern.log4j.Log4j;
+    import org.junit.Test;
+
+    import static org.junit.Assert.fail;
+
+    import java.sql.Connection;
+    import java.sql.DriverManager;
+
+    @Log4j
+    public class JDBCTests {
+        static {
+            try {
+                Class.forName("oracle.jdbc.driver.OracleDriver");
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        @Test
+        public void testConnection() {
+            try(Connection con = DriverManager.getConnection(
+                    "jdbc:oracle:thin:@localhost:1521:XE",
+                    "book_ex",
+                    "book_ex"
+            )) {
+                log.info(con);
+            } catch (Exception e) {
+                fail(e.getMessage());
+            }
+        }
+    }
+
+
+테스트에 통과되면 정상적으로 데이터베이스에 연결이 된 Connection 객체가 출력된다.
+만일 데이터베이스에 문제가 있거나 JDBC 드라이버가 문제가 있으면 데이터베이스를 사용 못하기 때문에 반드시 테스트 코드로 확인해야 한다.
+
+
+            3.4 커넥션 풀 설정
+
+여러 사용자에 대한 동시 처리는 '커넥션 풀'을 이용하는데 아예 스프링에 커넥션 풀을 등록하는 것이 좋다.
+DataSource 를 통해 매번 데이터베이스와 연결하는 방식이 아닌 미리 연결을 맺어주고 반환하는 구조를 이용하여 성능 향상을 꾀한다.
+
+커넥션 풀은 여러 종류가 있고, spring-jdbc 라이브러리도 있지만 최근 유행하는 HikariCP 를 이용해 보겠다.
+
+
+        3.4.1 라이브러리 추가와 DataSource 설정
+
+pom.xml 을 수정해서 HikariCP를 추가한다.
+
+
+    <dependency>
+        <groupId>com.zaxxer</groupId>
+        <artifactId>HikariCP</artifactId>
+        <version>3.4.5</version>
+    </dependency>
+
+
+root-context.xml 안에 설정은 직접 <bean> 태그를 정의하고 <property> 를 이용해 여러 속성을 설정할 수 있다.
+
+
+    <?xml version="1.0" encoding="UTF-8"?>
+    <beans xmlns="http://www.springframework.org/schema/beans"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:context="http://www.springframework.org/schema/context"
+           xsi:schemaLocation="http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd">
+
+        <!-- Root Context: defines shared resources visible to all other web components -->
+        <context:component-scan base-package="sample" />
+
+        <!-- HikariCP Connection Pool -->
+        <bean id="hikariConfig" class="com.zaxxer.hikari.HikariConfig">
+            <property name="driverClassName"
+                      value="oracle.jdbc.driver.OracleDriver" />
+            <property name="jdbcUrl"
+                      value="jdbc:oracle:thin:@localhost:1521:XE" />
+            <property name="username" value="book_ex" />
+            <property name="password" value="book_ex" />
+        </bean>
+
+        <!-- DataSource -->
+        <bean id="dataSource" class="com.zaxxer.hikari.HikariDataSource"
+              destroy-method="close">
+            <constructor-arg ref="hikariConfig" />
+        </bean>
+
+    </beans>
+
+
+이미 만들어진 클래스들로 빈을 등록할 때 root-context.xml 에 사용되어 일반적으로 어노테이션을 이용하는 경우가 많고,
+외부 jar 파일 등으로 사용한 클래스는 <bean> 태그를 이용해서 작성하는 경우가 대부분이다.
+
+
+    Java 설정을 이용하는 경우
+
+Java 로 설정을 이용하는 경우 RootConfig 클래스와 @Bean 을 이용해서 처리한다.
+@Bean 은 XML 설정에서 <bean> 태그와 동일한 역할을 하며 선언된 메소드의 실행 결과로 반환된 객체는 스프링의 빈으로 등록된다.
+
+
+    import org.springframework.context.annotation.Bean;
+    import org.springframework.context.annotation.ComponentScan;
+    import org.springframework.context.annotation.Configuration;
+
+    import javax.sql.DataSource;
+
+    import com.zaxxer.hikari.HikariConfig;
+    import com.zaxxer.hikari.HikariDataSource;
+
+    @Configuration
+    @ComponentScan(basePackages = {"sample"})
+    public class RootConfig {
+
+        @Bean
+        public DataSource dataSource() {
+            HikariConfig hikariConfig = new HikariConfig();
+            hikariConfig.setDriverClassName("oracle.jdbc.driver.OracleDriver");
+            hikariConfig.setJdbcUrl("jdbc:oracle:thin:@localhost:1521:XE");
+            hikariConfig.setUsername("book_ex");
+            hikariConfig.setPassword("book_ex");
+
+            HikariDataSource dataSource = new HikariDataSource(hikariConfig);
+
+            return dataSource;
+        }
+    }
+
+
+스프링이 시작되면 root-context.xml 를 읽어 아래와 같은 형태로 id가 dataSource 인 객체가 처리된다.
+
+
+    Spring 컨텍스트         Spring 컨텍스트         Spring 컨텍스트         Spring 컨텍스트
+
+                    →       hikariConfig        →   hikariConfig    →   hikariConfig ←┐
+                                                    dataSource          dataSource   ←┘
+    root-context.xml
+
+
+스프링 경험이 많이 없다면 위와 같은 빈 정의를 한 후 항상 테스트 하는 습관을 들이자.
+'src/test/java/persistence' 에 DataSourceTests 클래스를 작성한다.
+
+
+    import lombok.Setter;
+    import lombok.extern.log4j.Log4j;
+    import org.junit.Test;
+    import org.junit.runner.RunWith;
+    import org.springframework.beans.factory.annotation.Autowired;
+    import org.springframework.test.context.ContextConfiguration;
+    import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+
+    import javax.sql.DataSource;
+    import java.sql.Connection;
+
+    import static org.junit.Assert.fail;
+
+    @RunWith(SpringJUnit4ClassRunner.class)
+    @ContextConfiguration("file:src/main/webapp/WEB-INF/spring/root-context.xml")
+    // @ContextConfiguration(classes = {RootConfig.class})
+    @Log4j
+    public class DataSourceTests {
+
+        @Setter(onMethod_ = { @Autowired})
+        private DataSource dataSource;
+
+        @Test
+        public void testConnection() {
+            try(Connection con = dataSource.getConnection()) {
+                log.info(con);
+            } catch (Exception e) {
+                fail(e.getMessage());
+            }
+        }
+    }
+
+
+빈으로 등록된 DataSource 를 이용해 Connection 을 처리할 수 있는지 확인하자.
+실행해 보면 testConnection() 을 실행하면 내부적으로 HikariCP가 시작되고, 종료되는 로그를 확인할 수 있다.
+
+
+    INFO : com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+    INFO : com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
