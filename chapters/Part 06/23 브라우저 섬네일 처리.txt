@@ -1,0 +1,242 @@
+브라우저에 첨부파일 업로드 결과가 나타난다면 JSON 객체가 반환된다면 남은 작업은 다음과 같다.
+
+
+    - 업로드 후 업로드 부분을 초기화 시키는 작업
+    - 결과 데이터를 이용하여 화면에 섬네일이나 이미지 보여주는 작업
+
+
+현재 업로드는 <input type='file'> 을 통해 이루어지기 때문에 한 번 업로드 후 이를 초기화 시켜주는 작업과 화면에 반영이 필요하다.
+
+
+            23.1 <input type='file'> 초기화
+
+<input type='file'> 은 다른 DOM 요소들과 조금 다르게 readonly 라 안쪽 내용을 정할 수 없기 때문에
+별도 방법으로 초기화 시켜 다른 첨부파일을 추가할 수도 있도록 만들어야 한다.
+
+
+    var cloneObj = $(".uploadDiv").clone();
+
+    $('#uploadBtn').on("click", function(e) {...}
+
+
+첨부파일 업로드 전에 아무 내용 없는 <input type='file'> 객체가 포함된 <div> 를 복사한다.
+업로드 후 복사된 객체를 <div> 내에 다시 추가하여 첨부 파일 부분을 초기화시킨다.
+
+
+    $.ajax({
+        url: '/uploadAjaxAction',
+        processData: false,
+        contentType: false,
+        data: formData,
+        type: 'POST',
+        dataType: 'JSON',
+        success: function(result) {
+            console.log(result);
+
+            $(".uploadDiv").html(cloneObj.html());
+        }
+    });
+
+
+화면에 첨부 파일을 추가하고 버튼 클릭 시 이전과 달리 첨부 파일을을 다시 추가할 수 있는 형태로 변경되는 것을 확인할 수 있다.
+
+
+            23.2 업로드된 이미지 처리
+
+업로드된 결과는 JSON 형태로 받아와서 이를 화면에 적절한 섬네일을 보여주거나 화면에 파일 아이콘 등으로 보여줘 피드백해줄 필요가 있다.
+Ajax 처리 결과를 보여주도록 수정한다.
+
+
+        23.2.1 파일 이름 출력
+
+uploadAjax.jsp 엔 별도의 JavaScript 함수를 추가하여 특정 <ul> 태그 내에 업로드된 파일 이름을 보여주도록 한다.
+
+화면엔 <ul> 태그를 작성하여 첨부 파일 이름 목록으로 처리하도록 준비한다.
+
+
+    <div class="uploadDiv">
+        <input type="file" name="uploadFile" multiple>
+    </div>
+
+    <div class="uploadResult">
+        <ul>
+
+        </ul>
+    </div>
+
+
+JavaScript 목록을 보여주는 부분을 별도의 함수로 처리한다.
+
+
+    var uploadResult = $(".uploadResult ul");
+
+    function showUploadedFile(uploadResultArr) {
+        var str = "";
+
+        $(uploadResultArr).each(function(i, obj) {
+            str += "<li>" + obj.fileName + "</li>";
+        });
+
+        uploadResult.append(str);
+    }
+
+
+showUploadedFile() 은 JSON 데이터를 받아 해당 파일의 이름을 추가한다.
+Ajax 결과에서 받은 JSON 데이터를 showUploadedFile() 을 호출하도록 수정한다.
+
+
+    $.ajax({
+        url: '/uploadAjaxAction',
+        processData: false,
+        contentType: false,
+        data: formData,
+        type: 'POST',
+        dataType: 'JSON',
+        success: function(result) {
+            console.log(result);
+
+            showUploadedFile(result);
+
+            $(".uploadDiv").html(cloneObj.html());
+        }
+    });
+
+
+화면 업로드 후 단순히 업로드된 파일 이름들이 보이는 것을 확인할 수 있다.
+
+
+        23.2.2 일반 파일의 파일 처리
+
+첨부파일의 섬네일 이미지를 보여주는 작업은 조금 더 복잡하니 우선적으로 일반 파일이 업로드된 상황에
+첨부파일의 아이콘 등을 보여주도록 수정한다.
+
+기존 webapp 밑에 resources 폴더의 내용을 그대로 추가하고, img 폴더를 생성한다.
+일반 첨부파일의 이미지를 보여줄 attach.png 파일을 추가한다.
+
+uploadAjax.jsp 에서 일반 파일의 경우 attach.png 이미지가 보이게 수정한다.
+화면엔 약간의 스타일을 적용하여 첨부파일 영역을 처리한다.
+
+
+    <style>
+        .uploadResult {
+            width: 100%;
+            background-color: gray;
+        }
+
+        .uploadResult ul {
+            display: flex;
+            flex-flow: row;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .uploadResult ul li {
+            list-style: none;
+            padding: 10px;
+        }
+
+        .uploadResult ul li img {
+            width: 20px;
+        }
+    </style>
+
+
+    function showUploadedFile(uploadResultArr) {
+        var str = "";
+
+        $(uploadResultArr).each(function(i, obj) {
+            if(!obj.image) {
+                str += "<li><img src='${pageContext.request.contextPath}/resources/img/attach.png'>" + obj.fileName + "</li>";
+            } else {
+                str += "<li>" + obj.fileName + "</li>";
+            }
+        });
+
+        uploadResult.append(str);
+    }
+
+
+showUploadedFile() 이미지 파일이 아닌 경우 파일 아이콘을 보여주는 형태로 작성된다.
+
+
+        23.2.3 섬네일 이미지 보여주기
+
+일반 파일의 경우 단순 이미지를 보여주지만 이미지 파일의 경우 섬네일 파일을 보여주어야 한다.
+섬네일은 서버로 특정 URI 호출 시 보여주는데, 해당 파일 경로와 uuid 가 붙은 파일의 이름이 필요하니 조금 복잡하다.
+서버에 섬네일은 GET 방식으로 가져오도록 처리한다. 특정 URI 뒤 파일 이름을 추가하면 이미지 파일 데이터를 가져와
+<img> 태그를 작성하는 과정으로 처리한다.
+
+서버에 전송한 데이터는 '파일 경로' + 's_' + 'uuid 이름' 이다.
+이때 파일 이름에 한글이나 공백이 들어가면 문제가 발생할 수 있으니 JavaScript 의 encodeURIComponent() 함수로
+URI 에 문제가 없는 문자열을 생성하여 처리한다.
+
+
+    UploadController 에 섬네일 데이터 전송
+
+UploadController 엔 특정 파일 이름으로 이미지 데이터를 전송하는 코드를 우선 생성한다.
+
+
+    @GetMapping("/display")
+    @ResponseBody
+    public ResponseEntity<byte[]> getFile(String fileName) {
+        log.info("fileName: " + fileName);
+
+        File file = new File("C:\\upload\\" + fileName);
+
+        log.info("file: " + file);
+
+        ResponseEntity<byte[]> result = null;
+
+        try {
+            HttpHeaders header= new HttpHeaders();
+
+            header.add("Content-Type", Files.probeContentType(file.toPath()));
+            result = new ResponseEntity<>(FileCopyUtils.copyToByteArray(file), header, HttpStatus.OK);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return result;
+    }
+
+
+getFile() 은 문자열로 파일 경로가 포함된 fileName 을 파라미터로 받고 byte[] 를 전송한다.
+byte[] 로 이미지 파일 데이터를 전송할 때 신경쓰이는 것은 브라우저에 보내주는 MIME 타입이 파일의 종류에 따라 달라지는 점이다.
+이 부분을 해결하기 위해 probeContentType() 을 이용해서 적절한 MIME 타입 데이터를 Http 의 헤더 메시지에 포함할 수 있도록 처리한다.
+
+getFile() 테스트는 upload 폴더 밑에 테스트할 수 있는 영문 이름의 파일들을 추가하고, 브라우저에
+http://localhost:8000/display?fileName=2021/01/20/test.png 와 같이 경로와 파일 이름을 같이
+전달해 보는 방식으로 테스트할 수 있다.
+
+uuid 가 있으면 호출할 때 복잡하니 단순 이름의 파일들을 업로드와 관계된 경로에 추가한다.
+테스트를 위해 확장자가 jpg 인 파일들과 png 파일들을 폴더에 넣는다.
+
+http://localhost:8000/display?fileName=2021/01/20/test.png 을 호출해보고 이미지가와 확장자에 맞은 MIME 타입이
+변경되었는지 확인해보자.
+
+
+    JavaScript 처리
+
+브라우저에 GET 방식으로 첨부파일 이름을 사용할 때 항상 파일 이름에 공백이나 한글 이름이 문제가 될 수 있다.
+이를 수정하기 위해 encodeURIComponent() 를 이용해 URI 호출에 적합한 문자열로 인코딩 처리해야 한다.
+
+
+    function showUploadedFile(uploadResultArr) {
+        var str = "";
+
+        $(uploadResultArr).each(function(i, obj) {
+            if(!obj.image) {
+                str += "<li><img src='${pageContext.request.contextPath}/resources/img/attach.png'>" + obj.fileName + "</li>";
+            } else {
+                // str += "<li>" + obj.fileName + "</li>";
+                var fileCallPath = encodeURIComponent(obj.uploadPath + "/s_" + obj.uuid + "_" + obj.fileName);
+
+                str += "<li><img src='/display?fileName=" + fileCallPath + "'></li>";
+            }
+        });
+
+        uploadResult.append(str);
+    }
+
+
+브라우저에 이미지 종류 파일을 업로드하고 섬네일 이미지가 보이는지 확인하자.
