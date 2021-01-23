@@ -13,12 +13,14 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.context.annotation.EnableAspectJAutoProxy;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 @Configuration
 @ComponentScan(basePackages = {"sample", "service", "aop"})
 @EnableAspectJAutoProxy
 @EnableTransactionManagement
+@EnableScheduling
 @MapperScan(basePackages = {"mapper"})
 public class RootConfig {
 

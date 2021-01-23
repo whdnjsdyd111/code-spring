@@ -1,0 +1,303 @@
+게시물 수정 시 첨부파일 관련 작업은 사실 게시물 등록 작업과 유사하다.
+첨부파일 개념 자체가 수정이 아닌 기존 파일 삭제와 새 파일 추가이기 때문이다. 게시물 수정에 첨부파일은 수정이란 개념보다
+삭제 후 다시 추가한다는 개념으로 접근해야 한다. 게시물 수정엔 기존 게시물 테이블 수정 작업과 변경 작업이 이루어진다.
+
+
+            28.1 화면에서 첨부파일 수정
+
+게시물 수정은 views 폴더 내에 /board/modify.jsp 에서 이루어진다.
+게시물 수정은 게시물 조회화면과 유사하지만 원본 이미지 확대나 다운로드 기능이 필요하지 않은점,
+게시물 조회와 달리 삭제 버튼이 있어야하는 점이 다르다.
+
+
+        28.1.1 첨부파일 데이터 보여주기
+
+modify.jsp 파일에서 페이지 로딩 시 첨부파일 가져오는 작업을 먼저 처리한다.
+
+첨부파일 보이는 부분은 <div> 를 추가하고, get.jsp 에 사용한 <style> 태그 내용을 그대로 사용한다.
+
+
+    <div class="bigPictureWrapper">
+        <div class="bigPicture">
+
+        </div>
+    </div>
+
+    <style>
+        .uploadResult {
+            width: 100%;
+            background-color: gray;
+        }
+
+        .uploadResult ul {
+            display: flex;
+            flex-flow: row;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .uploadResult ul li {
+            list-style: none;
+            padding: 10px;
+            align-content: center;
+            text-align: center;
+        }
+
+        .uploadResult ul li img {
+            width: 100px;
+        }
+
+        .uploadResult ul li span {
+            color: white;
+        }
+
+        .bigPictureWrapper {
+            position: absolute;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            top: 0%;
+            width: 100%;
+            height: 100%;
+            background-color: gray;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        .bigPicture {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="card-header">Files</div>
+            <div class="card-body">
+                <div class="uploadResult">
+                    <ul>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+jQuery 의 $(document).ready() 를 이용해 첨부파일을 보여주는 작업을 처리한다.
+
+
+    (function() {
+        var bno = '<c:out value="${board.bno}"/>';
+
+        $.getJSON("/board/getAttachList", {bno: bno}, function(arr) {
+            console.log(arr);
+
+            var str = "";
+
+            $(arr).each(function(i, attach) {
+                // image type
+                if(attach.fileType) {
+                    var fileCallPath = encodeURIComponent(attach.uploadPath + "/s_" + attach.uuid + "_"
+                        + attach.fileName);
+
+                    str += "<li data-path='" + attach.uploadPath + "' data-uuid='" + attach.uuid +
+                        "' data-filename='" + attach.fileName + "' data-type='" + attach.fileType + "'><div>";
+                    str += "<img src='/display?fileName=" + fileCallPath + "'>";
+                    str += "</div></li>"
+                } else {
+                    str += "<li data-path='" + attach.uploadPath + "' data-uuid='" + attach.uuid +
+                        "' data-filename='" + attach.fileName + "' data-type='" + attach.fileType + "'><div>";
+                    str += "<span>" + attach.fileName + "</span><br/>";
+                    str += "<img src='${pageContext.request.contextPath}/resources/img/attach.png'></div></li>";
+                }
+            });
+
+            $(".uploadResult ul").html(str);
+        });
+    })();
+
+
+첨부파일 수정을 위해 게시물 등록 시 사용한 버튼과 파일 교체를 위한 <input type='file'> 이 필요하다.
+
+
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="card-header">Files</div>
+            <div class="card-body">
+                <div class="form-group uploadDiv">
+                    <input type="file" name="uploadFile" multiple>
+                </div>
+                <div class="uploadResult">
+                    <ul>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+화면에 첨부파일 영역에 파일 추가하는 <form> 태그가 추가된다.
+
+이미 등록된 첨부파일 수정 시 우선 기존 특정 파일을 삭제할 수 있도록 화면을 변경한다.
+Ajax 로 첨부파일의 데이터를 가져온 부분을 수정한다.
+
+
+    $(arr).each(function(i, attach) {
+        // image type
+        if(attach.fileType) {
+            var fileCallPath = encodeURIComponent(attach.uploadPath + "/s_" + attach.uuid + "_" + attach.fileName);
+
+            str += "<li data-path='" + attach.uploadPath + "' data-uuid='" + attach.uuid +
+                "' data-filename='" + attach.fileName + "' data-type='" + attach.fileType + "'><div>";
+            str += "<span>" + attach.fileName + "</span>";
+            str += "<button type='button' data-file=\'"+ fileCallPath + "\' data-type='image'";
+            str += "class='btn btn-warning btn-circle'><i class='fa fa-times'></i></button></br>";
+            str += "<img src='/display?fileName=" + fileCallPath + "'>";
+            str += "</div></li>"
+        } else {
+            str += "<li data-path='" + attach.uploadPath + "' data-uuid='" + attach.uuid +
+                "' data-filename='" + attach.fileName + "' data-type='" + attach.fileType + "'><div>";
+            str += "<span>" + attach.fileName + "</span><br/>";
+            str += "<button type='button' data-file=\'"+ fileCallPath + "\' data-type='image'";
+            str += "class='btn btn-warning btn-circle'><i class='fa fa-times'></i></button></br>";
+            str += "<img src='${pageContext.request.contextPath}/resources/img/attach.png'></div></li>";
+        }
+    });
+
+
+교체하는 파일을 첨부파는 <input> 태그와 첨부파일 이름과 삭제 가능한 버튼을 보이게 한다.
+
+
+        28.1.2 첨부파일 삭제 이벤트
+
+첨부파일 처리에 가장 신경 쓰이는 부분은 사용자가 이미 있는 첨부파일 중 일부를 삭제한 상태에서 게시물을 수정하지 않고
+빠져나가는 상황이다. 만일 사용자가 특정 첨부파일을 삭제했을 때 Ajax 로 업로드된 파일을 삭제하게 되면
+나중에 게시물 수정하지 않고 빠져나갔을 때 파일은 삭제된 상태가 되는 문제가 생긴다.
+이를 방지하려면 사용자가 특정 첨부파일을 삭제했을 때 화면에서만 삭제하고, 최종적으로 게시물을 수정했을 때 이를 반영한 방식을 이용한다.
+
+우선 간단히 'x' 번틀 클릭 시 사용자의 확인을 거쳐 화면상에 없어지게 한다.
+
+
+    $('.uploadResult').on("click", "button", function(e) {
+        console.log("delete file");
+
+        if(confirm("Remove this file?")) {
+            var targetLi = $(this).closest("li");
+            targetLi.remove();
+        }
+    });
+
+
+실제 파일 삭제는 게시물 수정 작업 시 이루어져야 하므로 사용자가 특정 첨부파일을 삭제할 시
+삭제할 파일에 대한 정보를 보관할 필요가 있다. 다행히 <li> 태그 내에 모든 정보가 들어 있어,
+이를 이용하여 <input type='hidden'> 태그를 생성해 둔다.
+
+실제 파일 삭제는 게시물 수정 버튼 누르고 처리과정에서 이룬다. 데이터베이스 정보와 비교하여 수정된 게시물에 포함된 항목들 중
+기존엔 존재했으나 수정하면서 빠진 항목이 있으면 이는 사용자 해당 파일을 삭제하길 원하는 것이다.
+만일 사용자가 화면에서 특정 첨부파일을 삭제해도 게시물을 수정하지 않으면 화면상에만 파일이 안보일 뿐
+다시 조회하면 원래 첨부파일들을 확인할 수 있다.
+
+
+        28.1.3 첨부파일 추가
+
+첨부파일 추가는 기존 게시물 등록 시의 처리와 동일하다.
+서버에 파일을 업로드하고, 이를 화면에 섬네일이나 파일의 아이콘으로 보이게 처리한다.
+
+
+    var regex = new RegExp("(.*?)\.(exe|sh|zip|alz)$");
+
+    var maxSize = 5242880;  // 5MB
+
+    function checkExtension(fileName, fileSize) {
+        ...
+    }
+
+    $("input[type='file']").change(function(e) {
+        ...
+    });
+
+    function showUploadResult(uploadResultArr) {
+        ...
+    }
+
+
+        28.1.4 게시물 수정 이벤트 처리
+
+실제 게시물 첨부파일 수정은 모든 작업은 서버에서 처리되니 게시물 수정 시 게시물 등록 작업과 같이 모든 첨부파일 정보를
+같이 전송해야 한다. 기존 소스 코드에서 수정 버튼 클릭 시 아래와 같은 내용의 수정이 필요하다.
+
+
+    var formObj = $('form');
+
+    $('button').on('click', function(e) {
+        e.preventDefault();
+
+        var operation = $(this).data("oper");
+
+        console.log(operation);
+
+        if(operation === 'remove') {
+            formObj.attr("action", "/board/remove");
+        } else if(operation === 'list') {
+            // move to list
+            ...
+        } else if(operation === 'modify') {
+            console.log("submit clicked");
+
+            var str = "";
+
+            $('.uploadResult ul li').each(function(i, obj) {
+                var jobj = $(obj);
+
+                console.dir(jobj);
+
+                str += "<input type='hidden' name='attachList[" + i + "].fileName' value='" + jobj.data("filename") +"'>"
+                    + "<input type='hidden' name='attachList[" + i + "].uuid' value='" + jobj.data("uuid") +"'>"
+                    + "<input type='hidden' name='attachList[" + i + "].uploadPath' value='" + jobj.data("path") +"'>"
+                    + "<input type='hidden' name='attachList[" + i + "].fileType' value='" + jobj.data("type") +"'>";
+            });
+            formObj.append(str).submit();
+        }
+        formObj.submit();
+    });
+
+
+            28.2 서버 측 게시물 수정과 첨부파일
+
+게시물 수정할 때 첨부파일 처리는 생각보다 복잡하다. 큰 이유는 기존 첨부파일 중에 어느 파일을 수정했고,
+어느 파일이 삭제되었는지 알아야 하기 때문이다.
+예제엔 간단한 방법으로 게시물 첨부파일 목록을 삭제했고, 다시 목록을 추가하는 형태로 처리하는 것이다.
+
+이 경우 데이터베이스엔 문제가 없지만 실제 파일이 업로드된 폴더엔 삭제된 파일이 남아 있는 문제가 생긴다.
+이 처리는 주기적으로 파일과 데이터베이스를 비교하는 방법 등으로 처리할 수 있다.
+
+
+        28.2.1 BoardService(Impl) 수정
+
+BoardService 엔 게시물 수정은 우선 기존 첨부파일 관련 데이터를 삭제한 후 다시 첨부파일 데이터를 추가하는 방식으로 동작한다.
+
+
+    @Transactional
+    @Override
+    public boolean modify(BoardVO board) {
+        log.info("modify ......" + board);
+
+        attachMapper.deleteAll(board.getBno());
+
+        boolean modifyResult = mapper.update(board) == 1;
+
+        if(modifyResult && board.getAttachList().size() > 0) {
+            board.getAttachList().forEach(attach -> {
+                attach.setBno(board.getBno());
+                attachMapper.insert(attach);
+            });
+        }
+
+        return modifyResult;
+    }
+
+
+첨부파일 수정이라기 보단 삭제 후 다시 추가하는 개념으로 게시물의 수정 전과 후 데이터베이스에 정상 변경이 되는지
+확인이 필요하다.

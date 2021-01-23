@@ -16,4 +16,12 @@
     <select id="findByBno" resultType="domain.BoardAttachVO">
         SELECT * FROM tbl_attach WHERE bno = ${bno}
     </select>
+
+    <delete id="deleteAll">
+        DELETE FROM tbl_attach WHERE bno = #{bno}
+    </delete>
+
+    <select id="getOldFiles" resultType="domain.BoardAttachVO">
+        SELECT * FROM tbl_attach WHERE uploadpath = TO_CHAR(sysdate - 1, 'yyyy\mm\dd')
+    </select>
 </mapper>
