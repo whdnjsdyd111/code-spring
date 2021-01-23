@@ -3,6 +3,8 @@ package controller;
 import domain.AttachFileDTO;
 import lombok.extern.java.Log;
 import net.coobird.thumbnailator.Thumbnailator;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -12,12 +14,17 @@ import org.springframework.ui.Model;
 import org.springframework.util.FileCopyUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -161,5 +168,79 @@ public class UploadController {
         }
 
         return result;
+    }
+
+    @GetMapping(value = "/download", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    @ResponseBody
+    public ResponseEntity<Resource> downloadFile(@RequestHeader("User-Agent") String userAgent,
+                                                 String fileName) {
+        log.info("download file: " + fileName);
+
+        Resource resource = new FileSystemResource("C:\\upload\\" + fileName);
+
+        if(resource.exists() == false) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+
+        log.info("resource: " + resource);
+
+        String resourceName = resource.getFilename();
+
+        // remove UUID
+        String resourceOriginName = resourceName.substring(resourceName.indexOf("_") + 1);
+
+        HttpHeaders headers = new HttpHeaders();
+        try {
+            String downloadName = null;
+
+            if(userAgent.contains("Trident")) {
+                log.info("IE browser");
+                downloadName = URLEncoder.encode(resourceOriginName, "UTF-8").replaceAll("\\+", " ");
+            } else if(userAgent.contains("Edge")) {
+                log.info("Edge browser");
+                downloadName = URLEncoder.encode(resourceOriginName, "UTF-8");
+            } else {
+                log.info("Chrome browser");
+                downloadName = new String(resourceOriginName.getBytes(StandardCharsets.UTF_8), "ISO-8859-1");
+            }
+
+            log.info("downloadName: " + downloadName);
+
+            headers.add("Content-Disposition",
+                    "attachment; filename=" + downloadName);
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+
+        return new ResponseEntity<>(resource, headers, HttpStatus.OK);
+    }
+
+    @PostMapping("/deleteFile")
+    @ResponseBody
+    public ResponseEntity<String> deleteFile(String fileName, String type) {
+        log.info("deleteFile: " + fileName);
+
+        File file;
+
+        try {
+            file = new File("C:\\upload\\" + URLDecoder.decode(fileName, "UTF-8"));
+
+            file.delete();
+
+            if(type.equals("image")) {
+                String largeFileName = file.getAbsolutePath().replace("s_", "");
+
+                log.info("largeFileName: " + largeFileName);
+
+                file = new File(largeFileName);
+
+                file.delete();
+            }
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+
+        return new ResponseEntity<String>("deleted", HttpStatus.OK);
     }
 }

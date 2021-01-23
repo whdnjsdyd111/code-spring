@@ -1,15 +1,21 @@
 package controller;
 
+import domain.BoardAttachVO;
 import domain.BoardVO;
 import domain.Criteria;
 import domain.PageDTO;
 import lombok.AllArgsConstructor;
 import lombok.extern.java.Log;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import service.BoardService;
+
+import java.util.List;
 
 @Controller
 @Log
@@ -43,7 +49,14 @@ public class BoardController {
 
     @PostMapping("/register")
     public String register(BoardVO board, RedirectAttributes rttr) {
+        log.info("====================");
         log.info("register: " + board);
+
+        if(board.getAttachList() != null) {
+            board.getAttachList().forEach(attach -> log.info(attach.toString()));
+        }
+
+        log.info("====================");
 
         service.register(board);
 
@@ -83,5 +96,13 @@ public class BoardController {
         }
 
         return "redirect:/board/list" + cri.getListLink();
+    }
+
+    @GetMapping(value = "/getAttachList", produces = MediaType.APPLICATION_JSON_UTF8_VALUE)
+    @ResponseBody
+    public ResponseEntity<List<BoardAttachVO>> getAttachList(Long bno) {
+        log.info("getAttachList: " + bno);
+
+        return new ResponseEntity<>(service.getAttachList(bno), HttpStatus.OK);
     }
 }

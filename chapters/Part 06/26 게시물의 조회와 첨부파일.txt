@@ -1,0 +1,242 @@
+게시물 조회는 첨부파일 다운로드나 원본 이미지를 볼 수 있는 기능을 사용하게 된다.
+고민할 사항은 첨부파일을 한 번에 볼 것인지, Ajax 로 별도로 처리할 지 결정하는 것이다.
+
+게시물 정보는 tbl_board 테이블에 기록되어 있고, 첨부파일 정보는 tbl_attach 에 기록되어 있어
+화면에 두 테이블에 정보를 사용하기 위해 다음과 같은 방식을 고려할 수 있다.
+
+
+    - BoardVO 객체를 가져올 시 json 으로 한꺼번에 게시물과 첨부파일의 정보를 같이 처리하는 방식
+      데이터베이스를 한 번만 호출하여 효율적이지만 MyBatis 쪽에서 처리해야 해서 할 일이 많아짐
+    - JSP 에서 첨부파일 정보를 Ajax 로 처리하는 방식
+      다시 쿼리를 처리해야 하는 불편함이 있지만 난이도가 낮고, 화면에서의 처리는 JavaScript 가 복잡
+
+
+정통 방식은 쿼리를 이용하여 두 테이블을 join 하여 처리하는 방식이다.
+쿼리를 한 번만 실행하여 데이터베이스 부하를 줄일 수 있는 장점이 있다.
+
+예제는 Ajax 를 이용한 방식으로 구성한다. 개발해 둔 코드를 최소한으로 수정하여 사용하는 것이 가능하며
+댓글 역시 Ajax 를 이용하여 동작 방식에 일관성을 유지하는 의도도 있다.
+
+
+            26.1 BoardService 와 BoardController 수정
+
+게시물 조회 시 첨부파일을 Ajax 로 처리하기 위해 우선 서버 측에 JSON 데이터를 만들어
+화면에 올바르게 전송하는 작업을 먼저 처리해야 한다.
+
+BoardAttachMapper 에선 이밎 게시물 번호로 BoardAttachVO 타입으로 변환하는 메소드 findByBno() 메소드가 완성된 상태이니,
+BoardService 와 BoardServiceImpl 클래스를 수정한다.
+
+
+    public List<BoardAttachVO> getAttachList(Long bno);
+
+
+마지막에 getAttachList() 를 추가해서 게시물 첨부파일들의 목록을 가져온다.
+
+
+    @Override
+    public List<BoardAttachVO> getAttachList(Long bno) {
+        log.info("get Attach list by bno: " + bno);
+
+        return attachMapper.findByBno(bno);
+    }
+
+
+BoardServiceImpl 은 이미 BoardAttachMapper 를 주입하도록 설계한 상태이니 BoardAttachMapper 인터페이스의
+findByBno() 를 호출하고 반환하도록 작성한다.
+
+
+            26.2 BoardController 변경과 화면 처리
+
+BoardController 는 특정 게시물 번호를 이용하여 첨부파일과 관련된 데이터를 JSON 으로 반환하도록 처리한다.
+
+
+    @GetMapping(value = "/getAttachList", produces = MediaType.APPLICATION_JSON_UTF8_VALUE)
+    @ResponseBody
+    public ResponseEntity<List<BoardAttachVO>> getAttachList(Long bno) {
+        log.info("getAttachList: " + bno);
+
+        return new ResponseEntity<>(service.getAttachList(bno), HttpStatus.OK);
+    }
+
+
+BoardController 는 @RestController 로 작성되지 않았기 때문에 직접 @ResponseBody 를 적용하여 JSON 데이터를 반환하도록 처리한다.
+
+
+        26.2.1 게시물 조회 화면의 처리
+
+게시물 조회하는 화면은 views 내에 /board/get.jsp 에서 이루어진다.
+가장 먼저 게시물 댓글 부분이 자동으로 동작하게 처리하는 작업부터 시작한다.
+
+
+    (function() {
+        var bno = '<c:out value="${board.bno}"/>';
+
+        $.getJSON("/board/getAttachList", {bno: bno}, function(arr) {
+            console.log(arr);
+        });
+    })();
+
+
+get.jsp 내에 <script> 태그 추가하고, $(document).ready() 를 이용해서 첨부파일 데이터를 가져오는 부분을
+즉시 실행 함수를 이용하여 처리한다. 첨부파일이 추가된 게시물을 선택하면 콘솔창에 첨부파일 목록을 볼 수 있다.
+
+첨부파일 데이터를 가져왔다면 파일을 보여주도록 <div> 를 생성한다.
+기존 게시물이 보여지는 <div class='row'> 아래에 별도로 <div class='row'> 를 생성하여 처리한다.
+
+
+    <div class="bigPictureWrapper">
+        <div class="bigPicture">
+
+        </div>
+    </div>
+
+    <style>
+        .uploadResult {
+            width: 100%;
+            background-color: gray;
+        }
+
+        .uploadResult ul {
+            display: flex;
+            flex-flow: row;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .uploadResult ul li {
+            list-style: none;
+            padding: 10px;
+            align-content: center;
+            text-align: center;
+        }
+
+        .uploadResult ul li img {
+            width: 100px;
+        }
+
+        .uploadResult ul li span {
+            color: white;
+        }
+
+        .bigPictureWrapper {
+            position: absolute;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            top: 0%;
+            width: 100%;
+            height: 100%;
+            background-color: gray;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        .bigPicture {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="card-header">Files</div>
+            <div class="card-body">
+                <div class="uploadResult">
+                    <ul>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+get.jsp 내에 추가된 <div> 는 크게 첨부파일의 목록을 보여줄 <div class='uploadResult'>
+와 원본 이미질 보여줄 <div class='bigPicture'> 부분이다.
+
+
+        26.2.2 첨부파일 보여주기
+
+JSON 으로 가져온 첨부파일 데이터는 작성된 <div> 안에 보이도록 처리해줘야 한다.
+전달된 JSON 데이터는 BoardAttachVO 객체이다.
+
+JavaScript 에선 다음과 같은 처리를 통해 화면에 보여주는 부분을 작성한다.
+
+
+    $.getJSON("/board/getAttachList", {bno: bno}, function(arr) {
+        console.log(arr);
+
+        var str = "";
+
+        $(arr).each(function(i, attach) {
+            // image type
+            if(attach.fileType) {
+                var fileCallPath = encodeURIComponent(attach.uploadPath + "/s_" + attach.uuid + "_" + attach.fileName);
+
+                str += "<li data-path='" + attach.uploadPath + "' data-uuid='" + attach.uuid +
+                    "' data-filename='" + attach.fileName + "' data-type='" + attach.fileType + "'><div>";
+                str += "<img src='/display?fileName=" + fileCallPath + "'>";
+                str += "</div></li>"
+            } else {
+                str += "<li data-path='" + attach.uploadPath + "' data-uuid='" + attach.uuid +
+                    "' data-filename='" + attach.fileName + "' data-type='" + attach.fileType + "'><div>";
+                str += "<span>" + attach.fileName + "</span><br/>";
+                str += "<img src='${pageContext.request.contextPath}/resources/img/attach.png'></div></li>";
+            }
+        });
+
+        $(".uploadResult ul").html(str);
+    });
+
+
+게시물 등록과 달리 첨부파일의 삭제 표시 등의 필요 없는 부분은 조금 정리해서 출력하게 한다.
+
+
+        26.3.3 첨부파일 클릭 시 이벤트 처리
+
+첨부파일 목록이 보이면 이미지 파일은 원본 이미지, 일반 파일은 다운로드 처리가 필요하다.
+
+
+    $('.uploadResult').on("click", "li", function(e) {
+        console.log("view image");
+
+        var liObj = $(this);
+
+        var path = encodeURIComponent(liObj.data("path") + "/" + liObj.data("uuid") + "_" + liObj.data("filename"));
+
+        if(liObj.data("type")) {
+            showImage(path.replace(new RegExp(/\\/g), "/"));
+        } else {
+            // download
+            self.location = "/download?fileName=" + path;
+        }
+    });
+
+    function showImage(fileCallPath) {
+        alert(fileCallPath);
+
+        $(".bigPictureWrapper").css("display", "flex").show();
+
+        $('.bigPicture').html("<img src='/display?fileName=" + fileCallPath + "'>")
+            .animate({width: '100%', height: '100%'});
+    }
+
+
+첨부파일 관련 정보는 모두 <li> 태그 내에 존재하니 이를 이용하여 이미지 파일과 일반 파일을 구분하여 처리한다.
+파일 경로는 함수로 전달될 때 문제가 생겨 replace() 를 이용하여 변환한 뒤 전달한다.
+
+showImage() 는 해당 경로의 이미지를 보여주는 역할을 한다. 위 코드를 추가하면 원본 이미지를 클릭했을 때 크게 보이게된다.
+
+
+        26.2.4 원본 이미지 창 닫기
+
+게시물 조회는 마지막 처리로 원본 이미지 창을 닫는 작업이다.
+
+
+    $(".bigPictureWrapper").on("click", function(e) {
+        $(".bigPicture").animate({width: '0%', height: '0%'}, 1000);
+        setTimeout(function() {
+            $('.bigPictureWrapper').hide();
+        }, 1000);
+    });

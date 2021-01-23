@@ -1,0 +1,487 @@
+첨부파일 업로드 처리 과정도 복잡하지만, 이를 사용자가 이용하는 과정 역시 복잡하다.
+브라우저에 보이는 첨부파일은 크게 이미지 종류와 일반 파일로 구분되므로 사용자의 첨부 파일과 관련된 행위도
+종류에 따라 다르게 처리되어야 한다.
+
+첨부 파일이 이미지인 경우 섬네일 이미지 클릭 시 원본 파일을 보여주는 형태로 처리되야 한다.
+이 경우 새로운 <div> 를 생성해 처리하는 방식을 이용하는데 이를 'light-box' 라고 흔히 부른다.
+jQuery 를 이용한 많은 플러그인이 있으니 이를 이용하거나 직접 구현하는 방식이 있고 후자를 통해 학습한다.
+
+첨부 파일이 이미지가 아닐 경우 기본은 다운로드다.
+파일 선택 시 다운로드가 실행되며 해당 파일 이름으로 다운로드가 가능해야 한다.
+
+
+            24.1 첨부파일 다운로드
+
+이미지 처리 전 우선 간단한 첨부파일 다운로드 처리부터 한다.
+다운로드는 서버에서 MIME 타입을 다운로드 타입으로 지정하고, 적절한 헤더 메시지를 통해 다운로드 이름을 지정하게 처리한다.
+이미지와 달리 MIME 타입이 고정되어 아래와 같이 시작하게 된다.
+
+
+    @GetMapping(value = "/download", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    @ResponseBody
+    public ResponseEntity<Resource> downloadFile(String fileName) {
+        log.info("download file: " + fileName);
+
+        Resource resource = new FileSystemResource("C:\\upload\\" + fileName);
+
+        log.info("resource: " + resource);
+
+        return null;
+    }
+
+
+ResponseEntity<> 의 타입은 byte[] 등을 사용할 수 있으나, 이번 예제는 springframework.core.io.Resource 타입을
+이용하여 간단히 처리해본다.
+
+테스트를 위해 C:\upload 폴더에 영문 파일을 하나 두고, '/download?fileName=파일이름' 형태로 호출해본다.
+
+브라우저엔 아무 반응이 없지만 로그가 기록되는 것을 확인할 수 있다.
+
+
+    controller.UploadController.downloadFile download file: test.png
+    controller.UploadController.downloadFile resource: file [C:\upload\test.png]
+
+
+서버에서 파일 인식 후 ResponseEntity<> 를 처리하며 이때 HttpHeaders 객체로 다운로드 시 파일 이름을 처리하도록 한다.
+
+
+    @GetMapping(value = "/download", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    @ResponseBody
+    public ResponseEntity<Resource> downloadFile(String fileName) {
+        log.info("download file: " + fileName);
+
+        Resource resource = new FileSystemResource("C:\\upload\\" + fileName);
+
+        log.info("resource: " + resource);
+
+        String resourceName = resource.getFilename();
+
+        HttpHeaders headers = new HttpHeaders();
+        try {
+            headers.add("Content-Disposition",
+                    "attachment; filename=" + new String(resourceName.getBytes(StandardCharsets.UTF_8),
+                            "ISO-8859-1"));
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+
+        return new ResponseEntity<>(resource, headers, HttpStatus.OK);
+    }
+
+
+MIME 타입은 다운로드 가능한 'application/octet-stream' 으로 지정하고, 다운로드 시 저장될 이름은 'Content-Disposition'
+으로 지정한다. 파일 이름의 문자열 처리는 파일 이름이 한글일 경우 저장할 때 깨지는 문제를 막기 위함이다.
+'/download?fileName=파일이름' 을 호출하면 자동으로 다운로드하는 것을 볼 수 있다.
+IE 계열에선 다운로드 호출이 안되는데, 이는 나중에 처리한다.
+
+
+        24.1.1 IE/Edge 브라우저 문제
+
+다운로드 시 IE 에선 한글 이름이 제대로 나오지 않는데, 'Content-Disposition' 값 처리의 인코딩 방식이 다르기 때문이다.
+IE 도 서비스 해야하면 HttpServletRequest 에 포함된 헤더 정보들을 이용하여 요청이 발생한 브라우저가 IE 계열인지
+확인하여 다르게 처리하는 방식이다. HTTP 헤더 메시지 중 디바이스 정보를 알 수 있는 헤더는 'User-Agent' 값을 이용한다.
+
+기존 downloadFile() 은 'User-Agent' 정보를 파라미터로 수집하고, IE 에 처리를 추가한다.
+Edge 브라우저는 IE 와 또 다르게 처리되니 주의하자.
+
+
+    @GetMapping(value = "/download", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    @ResponseBody
+    public ResponseEntity<Resource> downloadFile(@RequestHeader("User-Agent") String userAgent,
+                                                 String fileName) {
+        log.info("download file: " + fileName);
+
+        Resource resource = new FileSystemResource("C:\\upload\\" + fileName);
+
+        if(resource.exists() == false) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+
+        log.info("resource: " + resource);
+
+        String resourceName = resource.getFilename();
+        String resourceOriginName = resourceName.substring(resourceName.indexOf("_") + 1);
+
+        HttpHeaders headers = new HttpHeaders();
+        try {
+            String downloadName = null;
+
+            if(userAgent.contains("Trident")) {
+                log.info("IE browser");
+                downloadName = URLEncoder.encode(resourceOriginName, "UTF-8").replaceAll("\\+", " ");
+            } else if(userAgent.contains("Edge")) {
+                log.info("Edge browser");
+                downloadName = URLEncoder.encode(resourceOriginName, "UTF-8");
+            } else {
+                log.info("Chrome browser");
+                downloadName = new String(resourceOriginName.getBytes(StandardCharsets.UTF_8), "ISO-8859-1");
+            }
+
+            log.info("downloadName: " + downloadName);
+
+            headers.add("Content-Disposition",
+                    "attachment; filename=" + downloadName);
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+
+        return new ResponseEntity<>(resource, headers, HttpStatus.OK);
+    }
+
+
+downloadFile() 은 @RequestHeader 를 이용하여 필요한 HTTP 헤더 메시지 내용을 수집할 수 있다.
+이로 'User-Agent' 정보를 파악하고, 값이 'MSIE' 혹은 'Trident' 의 경우 다른 방식으로 처리한다.
+
+위 코드가 적용되면 Chrome 에선 한글 파일 다운로드를 먼저 시도 후 인터넷으로 URL 주소로 인코딩하는 페이지를 이용하여
+파일 이름을 변환해본다. IE 주소에서 한글을 적으면 에러가 발생할 것이다.
+
+IE 에서 테스트 진행 시 URL Encoding 작업을 해야하는 데 검색으로 웹 페이지를 쉽게 찾을 수 있다.
+
+예로 '구멍가게2.jpg' 란 이름을 인코딩하여 '%EA%B5...' 형식으로 주소창에 테스트 해본다.
+
+실행 결과는 IE, Chrome 모두 정상적으로 한글 이름이 반영된다.
+
+IE 와 유사하지만 Edge 브라우저의 경우 Chrome 과 유사하며 다음과 같이 다르게 처리한다.
+
+
+    - userAgent 내에 'Edge' 문자를 확인
+    - 다운로드 파일 이름에 'ISO-8859-1' 인코딩을 적용하지 않음
+
+
+        24.1.2 업로드된 후 다운로드 처리
+
+다운로드 자체에 대한 처리는 완료했으니, /uploadAjax 화면에서 업로드된 파일 이미지를 클릭 시 다운되도록 처리한다.
+이미지 파일이 아닌 경우는 첨부파일 아이콘이 보이게 된다.
+
+수정할 부분은 'attach.png' 파일을 클릭하면 다운로드에 필요한 경로와 UUID 가 붙은 파일 이름을 이용하여 다운로드가 가능토록
+<a> 태그를 이용하여 '/download?fileName=xxx' 부분을 추가한다.
+
+
+    function showUploadedFile(uploadResultArr) {
+        var str = "";
+
+        $(uploadResultArr).each(function(i, obj) {
+            if(!obj.image) {
+                var fileCallPath = encodeURIComponent(obj.uploadPath + "/" + obj.uuid + "_" + obj.fileName);
+
+                str += "<li><a href='/download?fileName=" + fileCallPath + "'>"
+                    + "<img src='${pageContext.request.contextPath}/resources/img/attach.png'>" + obj.fileName + "</a></li>"
+            } else {
+                // str += "<li>" + obj.fileName + "</li>";
+                var fileCallPath = encodeURIComponent(obj.uploadPath + "/s_" + obj.uuid + "_" + obj.fileName);
+
+                str += "<li><img src='/display?fileName=" + fileCallPath + "'></li>";
+            }
+        });
+
+        uploadResult.append(str);
+    }
+
+
+브라우저에 <img> 태그를 클릭하면 자동 다운로드가 되는 것을 확인할 수 있다.
+
+다운로드 파일의 이름에서 UUID 를 제거하고 순수하게 다운로드 파일 이름으로 저장하는 부분은
+
+
+    // remove UUID
+    String resourceOriginName = resourceName.substring(resourceName.indexOf("_") + 1);
+
+
+해당 부분은 resourceOriginName 을 생성하여 UUID 부분을 잘라낸 상태의 파일 이름으로 저장한다.
+
+
+            24.2 원본 이미지 보여주기
+
+일반 첨부파일과 섬네일의 경우 클릭하면 원본 이미지를 보여주도록 처리해야 한다.
+섬네일 이미지가 '경로 + /s_ + UUID + 파일이름' 이었다면 원본 이미지 이름 중간에 '/s_' 가 '/' 로 변경된다는 점이다.
+원본 이미지를 보여주는 <div> 를 생성하고, 해당 <div> 에 이미지 태그를 작성하여 넣는 작업과
+이를 화면상에 절대 위치로 보여줄 필요가 있다.
+
+
+        24.2.1 원본 이미지를 보여줄 <div> 처리
+
+핵심적인 부분은 이미지를 보여줄 <div> 를 처리하는 부분이 핵심이다.
+<div> 처리 부분은 섬네일 파일 클릭 시 이루어지니 JavaScript 함수를 작성한다.
+
+
+    function showImage(fileCallPath) {
+        alert(fileCallPath);
+    }
+
+    $(document).ready(function() {...}
+
+
+showImage() 함수는 나중에 <a> 태그에서 직접 showImage() 를 호출할 수 있는 방식으로 작성하기 위함이다.
+
+섬네일 이미지를 보여주는 JavaScript 코드에서 섬네일 클릭 시 showImage() 가 호출되는 코드를 작성한다.
+
+
+    function showUploadedFile(uploadResultArr) {
+        var str = "";
+
+        $(uploadResultArr).each(function(i, obj) {
+            if(!obj.image) {
+                var fileCallPath = encodeURIComponent(obj.uploadPath + "/" + obj.uuid + "_" + obj.fileName);
+
+                str += "<li><a href='/download?fileName=" + fileCallPath + "'>"
+                    + "<img src='${pageContext.request.contextPath}/resources/img/attach.png'>" + obj.fileName + "</a></li>"
+            } else {
+                // str += "<li>" + obj.fileName + "</li>";
+                var fileCallPath = encodeURIComponent(obj.uploadPath + "/s_" + obj.uuid + "_" + obj.fileName);
+
+                var originPath = obj.uploadPath + "\\" + obj.uuid + "_" + obj.fileName;
+                originPath = originPath.replace(new RegExp(/\\/g), "/");
+
+                str += "<li><a href=\"javascript:showImage(\'" + originPath +
+                    "\')\"><img src='/display?fileName=" + fileCallPath + "'></li>";
+            }
+        });
+
+        uploadResult.append(str);
+    }
+
+
+이미지 첨부파일은 업로드 경로와 UUID 가 붙은 파일의 이름이 필요하니 originPath 란 변수로 하나의 문자열을 생성한다.
+생성된 문자열은 '\' 기호를 '/' 로 변환한 뒤 showImage() 파라미터에 전달한다.
+
+
+    CSS 와 HTML 처리
+
+실제 원본 이미지 영역은 아래와 같이 작성한다.
+
+
+    <div class="bigPictureWrapper">
+        <div class="bigPicture">
+
+        </div>
+    </div>
+
+
+    <style>
+        .uploadResult {
+            width: 100%;
+            background-color: gray;
+        }
+
+        .uploadResult ul {
+            display: flex;
+            flex-flow: row;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .uploadResult ul li {
+            list-style: none;
+            padding: 10px;
+            align-content: center;
+            text-align: center;
+        }
+
+        .uploadResult ul li img {
+            width: 100px;
+        }
+
+        .uploadResult ul li span {
+            color: white;
+        }
+
+        .bigPictureWrapper {
+            position: absolute;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            top: 0%;
+            width: 100%;
+            height: 100%;
+            background-color: gray;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        .bigPicture {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .bigPicture img {
+            width: 600%;
+        }
+    </style>
+
+
+실제 이미지는 '.bigPicture' 안에 <img> 태그를 생성하여 넣게 된다.
+showImage() 함수는 약간의 코드로 원본 이미지를 보여주도록 수정한다.
+
+
+    function showImage(fileCallPath) {
+        // alert(fileCallPath);
+
+        $('.bigPictureWrapper').css("display", "flex").show();
+
+        $('.bigPicture')
+            .html("<img src='/display?fileName=" + encodeURI(fileCallPath) + "'>")
+            .animate({width: '100%', height: '100%'}, 1000);
+    }
+
+
+showImage() 는 내부적으로 화면 가운데 이미지를 배치하여 jQuery 로 animate() 를 이용하여 효과를 처리했다.
+
+
+    <div> 이벤트 처리
+
+원본 이미지가 보여주는 <div> 는 전체 화면을 차지하여 다시 클릭하면 사라지는 이벤트를 처리한다.
+
+
+    $(".bigPicture").on("click", function (e) {
+        $('.bigPicture').animate({width: '0%', height: '0%'}, 1000);
+        setTimeout(() => {
+            $(this).hide();
+        }, 1000);
+    });
+
+
+jQuery 는 애니메이션이 끝난 후의 이벤트를 감지하는 방식도 있지만, 예제는 1초 후 배경창을 안보이도록 처리했다.
+
+setTimeout() 을 사용하였으며 이에 적용된 화살표 함수는는 IE 에서 동작하지 않으므로 필요하면 다음 코드로 변경할 수도 있다.
+
+
+    $(".bigPicture").on("click", function (e) {
+        $('.bigPicture').animate({width: '0%', height: '0%'}, 1000);
+        setTimeout(function() {
+            $('.bigPicture').hide();
+        }, 1000);
+    });
+
+
+            24.3 첨부파일 삭제
+
+삭제는 많은 고민이 필요하다. 단순히 파일 하나를 삭제한다고 생각할 수 있지만 실제로 다음 문제를 고민해야한다.
+
+
+    - 이미지 파일은 섬네일까지 삭제
+    - 파일 삭제 후 브라우저에서도 섬네일 및 파일 아이콘 삭제
+    - 비정상 종료 시 업로드된 파일 처리
+
+
+        24.3.1 일반 파일과 이미지 파일 삭제
+
+업로드된 첨부파일 삭제는 Ajax 나 <form> 태그를 이용하여 모두 적용할 수 있다.
+이미 업로드된 첨부 파일의 삭제는 일반 파일의 경우 업로드된 파일만 삭제하면 되지만, 이미지는 섬네일도 같이 삭제해야 한다.
+
+서버 측엔 삭제할 파일의 확장자를 검사하여 일반 파일인지 이미지 파일인지 파악하거나 파라미터로 파일의 종류를 파악하고,
+이를 이용하여 다르게 처리한다.
+
+
+    화면에서 삭제 기능
+
+첨부파일이 업로드된 후 생기는 이미지 파일 옆에 'x' 를 표시하도록 수정한다.
+
+
+    function showUploadedFile(uploadResultArr) {
+        var str = "";
+
+        $(uploadResultArr).each(function(i, obj) {
+            if(!obj.image) {
+                var fileCallPath = encodeURIComponent(obj.uploadPath + "/" + obj.uuid + "_" + obj.fileName);
+
+                str += "<li><div><a href='/download?fileName=" + fileCallPath + "'>"
+                    + "<img src='${pageContext.request.contextPath}/resources/img/attach.png'>" + obj.fileName + "</a>"
+                    + "<span data-file=\'" + fileCallPath + "\' data-type='file'> x </span>"
+                    + "</div></li>";
+            } else {
+                // str += "<li>" + obj.fileName + "</li>";
+                var fileCallPath = encodeURIComponent(obj.uploadPath + "/s_" + obj.uuid + "_" + obj.fileName);
+
+                var originPath = obj.uploadPath + "\\" + obj.uuid + "_" + obj.fileName;
+                originPath = originPath.replace(new RegExp(/\\/g), "/");
+
+                str += "<li><a href=\"javascript:showImage(\'" + originPath +
+                    "\')\">" + "<img src='/display?fileName=" + fileCallPath + "'></a>" +
+                    "<span data-file=\'" + fileCallPath + "\' data-type='image'> x </span></li>";
+            }
+        });
+
+        uploadResult.append(str);
+    }
+
+
+변경된 부분은 <span> 태그를 이용하여 섬네일이나 파일 아이콘 옆 'x' 표시를 추가한 점과 <span> 태그에
+'data-file' 과 'data-type' 속성을 추가한 부분이다.
+
+'x' 표시에 대한 이벤트 처리는 아래와 같다.
+
+
+    $('.uploadResult').on("click", "span", function(e) {
+        var targetFile = $(this).data("file");
+        var type = $(this).data("type");
+        console.log(targetFile);
+
+        $.ajax({
+            url: '/deleteFile',
+            data: {fileName: targetFile, type: type},
+            dataType: 'text',
+            type: 'POST',
+            success: function(result) {
+                alert(result);
+            }
+        });
+    });
+
+
+첨부파일 삭제는 <span> 태그를 이용하여 처리하지만, 첨부파일 업로드 후 생성되어 '이벤트 위임' 방식으로 처리해야 한다.
+이벤트 처리는 Ajax 에서 첨부파일 경로와 이름, 파일의 종류(이미지 혹은 일반)를 전송한다.
+
+
+    서버에서 첨부파일의 삭제
+
+서버 측에선 첨부파일은 전달되는 파라미터 이름과 종류를 파악하여 처리한다.
+
+
+    @PostMapping("/deleteFile")
+    @ResponseBody
+    public ResponseEntity<String> deleteFile(String fileName, String type) {
+        log.info("deleteFile: " + fileName);
+
+        File file;
+
+        try {
+            file = new File("C:\\upload\\" + URLDecoder.decode(fileName, "UTF-8"));
+
+            file.delete();
+
+            if(type.equals("image")) {
+                String largeFileName = file.getAbsolutePath().replace("s_", "");
+
+                log.info("largeFileName: " + largeFileName);
+
+                file = new File(largeFileName);
+
+                file.delete();
+            }
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+
+        return new ResponseEntity<String>("deleted", HttpStatus.OK);
+    }
+
+
+deleteFile() 은 브라우저에 전송하는 파일 이름과 종류를 파라미터로 받아 파일 종류에 따라 다르게 동작한다.
+파일 이름은 '경로 + UUID + _ + 파일 이름' 으로 구성되어 있으니, 일반 파일은 파일만 삭제한다.
+
+이미지의 경우 섬네일이 존재하니, 파일 이름 중간에 's_' 가 들어가 있다. 일반 이미지 파일의 경우 's_' 가 없도록 되니,
+이 부분을 변경하여 원본 이미지 파일도 같이 삭제하게 처리한다.
+
+
+        24.3.2 첨부파일의 삭제 고민
+
+삭제 시 작업의 최대 고민은 사용자가 비정상적으로 브라우저 종료하는 행위이다.
+서버엔 Ajax 를 이용하여 업로드하여 이미 저장된 상태지만, 사용자가 '작업 관리자' 나 전원 버튼을 누르는 등의 조치를 취해
+브라우저 자체를 종료해 버리면 이를 감지할 수 있는 적당한 방법이 없다. (창이 닫히는 이벤트는 가능하지만 비정상적인 종료는
+문제가 된다.)
+
+이 해결책은 실제 최종적인 결과와 서베에 업로드된 파일 목록을 비교하여 처리하는 것이다.
+보통 이런 작업은 spring-batch 나 Quartz 라이브러리를 이용하여 처리한다.
