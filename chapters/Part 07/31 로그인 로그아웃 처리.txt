@@ -1,0 +1,515 @@
+            31.1 접근 제한 설정
+
+security-context.xml 에 다음 접근 제한을 설정한다.
+
+
+    <security:http>
+        <security:intercept-url pattern="/sample3/all" access="permitAll" />
+
+        <security:intercept-url pattern="/sample3/member" access="hasRole('ROLE_MEMBER')" />
+
+        <security:form-login />
+    </security:http>
+
+
+특정 URI 에 접근할 때 인터셉터로 접근 제한 설정은 <security:intercept-url> 을 이용한다.
+<security:intercept-url> 은 pattern 이란 속성과 access 속성을 지정해야만 한다.
+pattern 속성은 말그대로 URI 패턴을 의미하고, access 는 권한을 체크한다.
+위 경우 '/sample3/member' 란 URI 는 'ROLE_MEMBER' 란 권한이 있는 사용자만 접근할 수 있다.
+
+access 속성값으로 사용된 문자열은 표현식, 권한명을 의미하는 문자열을 이용할 수 있다.
+<security:http> 는 기본 설정이 표현식을 이용하는 것이다. 만일 단순한 문자열만 이용하고 싶은 경우
+use-expressions="false" 를 지정한다. 아래는 표현식을 지정하지 않을 경우의 지정 방식이다.
+
+
+    <security:http auto-config="true" use-expressions="false">
+
+        <security:intercept-url pattern="/sample3/member" access="ROLE_MEMBER" />
+
+
+설정 변경 후 WAS 를 실행한 후 '/sample3/member' 에 접근해 보면 '/sample3/all' 과 달리
+'/sample3/member' 는 로그인 페이지로 강제 이동하는 것을 볼 수 있다.
+
+신기한 점은 '/login' 에 해당하는 컨트롤러나 웹 페이지는 존재하지 않는 점이다.
+이것은 스프링 시큐리티가 기본으로 제공하는 페이지며, 현실적으론 별도의 로그인 페이지를 제작하는 것이 맞다.
+
+
+            31.2 단순 로그인 처리
+
+로그인 화면이 보여지기만 한데 로그인을 할 수 없으니 '/sample3/member' 에 접근할 수 있는 방법은 아무 상황도 없다.
+추가적인 설정을 통해 지정된 아이디와 패스워드로 로그인이 가능하도록 설정을 추가해본다.
+
+스프링 시큐리티에서 명심해야 하는 사항 중 하나는 username 이나 User 란 용어의 의미가 일반적인 시스템에서의
+의미와 차이가 있다는 점이다.
+일반 시스템에서 userid 는 스프링 시큐리티에선 username 에 해당한다. 일반적으로 사용자 이름을 username 이라 처리하는 것과
+혼동하면 안된다.
+
+User 라는 용어 역시 혼란될 수 있는데 스프링 시큐리티의 User 는 인증 정보와 권한을 가진 객체이므로 일반적인 경우엔 사용하는 사용자 정보와
+다른 의미이다. 예제에선 이를 구분하기 위해 시스템상의 회원 정보는 MemberVO 란 클래스를 이용할 것이다. 단순히 로그인이 처리되는 것을
+확인하기 위해 메모리상에 문자열을 지정하고 이를 기준으로 동작하도록 설정해 본다.
+
+인증과 권한에 대한 실제 처리는 UserDetailsService 란 것을 이용해 처리하는데, XML 에 다음과 같이 지정할 수 있다.
+
+
+    <security:authentication-manager>
+        <security:authentication-provider>
+            <security:user-service>
+                <security:user name="member" password="member" authorities="ROLE_MEMBER" />
+            </security:user-service>
+        </security:authentication-provider>
+    </security:authentication-manager>
+
+
+추가된 설정의 핵심은 'member' 란 계정 정보를 가진 사용자가 로그인을 할 수 있도록 하는 것이다.
+위 설정을 추가하고 '/sample3/member' 로 접근하면 예상과는 달리 에러가 발생한다.
+
+실행 결과 에러는 'PasswordEncoder' 란 존재가 없기 때문에 발생한다.
+스프링 시큐리티는 5버전 부터 반드시 PasswordEncoder 란 존재를 이용하도록 변경되었다.
+스프링 시큐리티 4버전 까진 PasswordEncoder 지정 없이 동작됐지만 5버전 부터 반드시 필요하다.
+
+임시 방편으로 스프링 시큐리티 5버전엔 포맷팅 처리를 지정하여 패스워드 인코딩 방식을 지정할 수 있다.
+만일 패스워드 인코딩 처리 없이 사용하고 싶다면 패스워드 앞에 '{noop}' 문자열을 추가한다.
+
+
+    <security:user name="member" password="{noop}member" authorities="ROLE_MEMBER" />
+
+
+다시 '/sample3/member' 에 접근하여 로그인해보자.
+
+
+        31.2.1 로그아웃 확인
+
+스프링 시큐리티 학습하면 매번 로그아웃하고 새롭게 로그인해야 할 상황이 자주 발생한다.
+확실한 방법은 브라우저에 세션과 관련된 정보를 삭제하는 것이다.
+개발자 도구에서 Application 탭을 확인하여 'Cookies' 항목에 'JSESSIONID' 세션 쿠키를 확인할 수 있다.
+
+로그아웃은 JSESSIONID 쿠키를 강제로 삭제해서 처리한다.
+
+쿠키를 삭제한 후 로그인이 필요한 URI 를 다시 호출하면 로그인이 필요한 것을 볼 수 있다.
+
+
+        31.2.2 여러 권한을 가지는 사용자 설정
+
+정상 로그인된다면 '/sample3/admin' 을 처리하도록 한다. '/sample3/admin' 은 'ROLE_MEMBER' 란 권한을 가진 사용자가
+접근할 수 있도록 지정하는데 사용자는 'ROLE_ADMIN' 이란 권한을 가진 사용자가 접근할 수 있도록 지정하는데
+사용자는 'ROLE_ADMIN' 과 'ROLE_MEMBER' 란 2개의 권한을 가지도록 지정한다.
+
+
+    <security:http>
+        <security:intercept-url pattern="/sample3/all" access="permitAll" />
+
+        <security:intercept-url pattern="/sample3/member" access="hasRole('ROLE_MEMBER')" />
+
+        <security:intercept-url pattern="/sample3/admin" access="hasRole('ROLE_ADMIN')" />
+
+        <security:form-login />
+    </security:http>
+
+    <security:authentication-manager>
+        <security:authentication-provider>
+            <security:user-service>
+                <security:user name="member" password="{noop}member" authorities="ROLE_MEMBER" />
+
+                <security:user name="admin" password="{noop}admin" authorities="ROLE_MEMBER, ROLE_ADMIN" />
+            </security:user-service>
+        </security:authentication-provider>
+    </security:authentication-manager>
+
+
+새롭게 추가된 <security:intercept-url> 은 '/sample3/admin' 에 대한 접근을 설정한다.
+<security:user> 에 추가된 admin 사용자는 'ROLE_MEMBER' 와 'ROLE_ADMIN' 이란 2개의 권한을 가지도록 설정한다.
+Admin 계정을 가진 사용자는 '/sample3/member' 와 '/sample3/admin' 모두 접속할 수 있다.
+
+
+        31.2.3 접근 제한 메시지 처리
+
+특정 사용자가 로그인 했지만, URI 를 접근할 수 있는 권한이 없는 솽황이 발생할 수도 있다. 이 경우엔 접근 제한 에러 메시지를 보게된다.
+예제엔 member 권한을 가진 사용자는 '/sample3/member' 에 접근할 수 있지만 '/sample3/admin' 은 접근할 수 없다.
+이 경우 403 에러가 발생한다.
+
+스프링 시큐리티에서 접근 제한에 대한 AccessDeniedHandler 를 직접 구현하거나 특정 URI 를 지정할 수도 있다.
+
+
+    <security:http auto-config="true" use-expressions="true">
+        <security:intercept-url pattern="/sample3/all" access="permitAll" />
+
+        <security:intercept-url pattern="/sample3/member" access="hasRole('ROLE_MEMBER')" />
+
+        <security:intercept-url pattern="/sample3/admin" access="hasRole('ROLE_ADMIN')" />
+
+        <security:form-login />
+
+        <security:access-denied-handler error-page="/accessError" />
+    </security:http>
+
+
+<security:access-denied-handler> 는 org.springframework.security.web.access.AccessDeniedHandler 인터페이스의
+구현체를 지정하거나 error-page 를 지정할 수 있다.
+ 위 경우 '/accessError' 란 URI 로 접근 제한 시 보이는 화면을 처리한다.
+
+ 'src/main/java/controller' 에 CommonController 클래스를 생성하여 '/accessError' 를 처리하도록 지정한다.
+
+
+     @Controller
+     @Log
+     public class CommonController {
+         @GetMapping("/accessError")
+         public void accessDenied(Authentication auth, Model model) {
+             log.info("access Denied: " + auth);
+
+             model.addAttribute("msg", "Access Denied");
+         }
+     }
+
+
+CommonController 에선 간단히 사용자가 알아볼 수 있는 에러 메시지만 Model 에 추가한다.
+'/accessError' 는 Authentication 타입의 파라미터를 받도록 설계해서 필요한 경우 사용자 정보를 확인할 수 있도록 한다.
+views 폴더에 'accessError.jsp' 파일을 생성한다.
+
+
+    <%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
+    <%@ taglib prefix="sec" uri="http://www.springframework.org/security/tags" %>
+    <%@ page contentType="text/html;charset=UTF-8" language="java" %>
+    <html>
+    <head>
+        <title>Title</title>
+    </head>
+    <body>
+    <h1>Access Denied Page</h1>
+
+    <h2><c:out value="${SPRING_SECURITY_403_EXCEPTION.getMessage()}" /></h2>
+
+    <h2><c:out value="${msg}" /></h2>
+    </body>
+    </html>
+
+
+Access Denied 의 경우 403 에러 메시지를 발생하여 'SPRING_SECURITY_403_EXCEPTION' 이란 이름으로
+AccessDeniedHandler 객체가 전달된다. 브라우저에 '/sample3/admin' URI 를 'member/member' 정보로 로그인할 경우
+accessError.jsp 내용이 보이게 된다.
+
+
+        31.2.4 AccessDeniedHandler 인터페이스를 구현하는 경우
+
+<security:access-denied-handler error-page="/accessError" /> 와 같이 error-page 만을 제공하는 경우
+사용자가 접근했던 URI 자체의 변화는 없다. URI 자체는 '/sample/admin' 으로 되어 있고, 화면 내용은 '/accessError' 에
+해당하는 URI 결과이다.
+
+접근 제한이된 경우 다양한 처리를 하고 싶다면 직접 AccessDeniedHandler 인터페이스를 구현하는 편이 좋다.
+예를 들어 접근 제한이 되었을 때 쿠키나 세션에 특정 작업을 하거나 HttpServletResponse 에 특정한 헤더 정보를 추가하는 등의
+행위를 할 경우엔 직접 구현하는 방식이 더 권장된다.
+
+예제로 'src/main/java/security' 패키지를 생성하고 CustomAccessDeniedHandler 클래스를 추가한다.
+
+
+    @Log
+    public class CustomAccessDeniedHandler implements AccessDeniedHandler {
+        @Override
+        public void handle(HttpServletRequest request, HttpServletResponse response,
+                           AccessDeniedException e) throws IOException, ServletException {
+            log.warning("Access Denied Handler");
+
+            log.warning("Redirect...");
+
+            response.sendRedirect("/accessError");
+        }
+    }
+
+
+CustomAccessDeniedHandler 클래스는 AccessDeniedHandler 인터페이스를 직접 구현한다.
+인터페이스의 메소드는 handle() 뿐이라 HttpServletRequest, HttpServletResponse 를 파라미터로 사용하여
+서블릿 API 를 이용하는 처리가 가능하다.
+
+위 코드에 접근 제한에 걸리는 경우 리다이렉트 방식으로 동작하게 지정한다.
+security-context.xml 에선 error-page 속성 대신 CustomAccessDeniedHandler 을 빈으로 등록해 사용한다.
+
+
+    <bean id="customAccessDenied" class="security.CustomAccessDeniedHandler" />
+
+    <security:http auto-config="true" use-expressions="true">
+        <security:intercept-url pattern="/sample3/all" access="permitAll" />
+
+        <security:intercept-url pattern="/sample3/member" access="hasRole('ROLE_MEMBER')" />
+
+        <security:intercept-url pattern="/sample3/admin" access="hasRole('ROLE_ADMIN')" />
+
+        <!-- <security:access-denied-handler error-page="/accessError" /> -->
+        <security:access-denied-handler ref="customAccessDenied" />
+
+        <security:form-login />
+    </security:http>
+
+
+<security:access-denied-handler> 는 error-page 속성과 ref 속성 둘 중 하나만 사용한다.
+위는 동일한 방식으로 '/sample3/admin' 에 'member/member' 계정으로 로그인하면
+이전과 달리 '/accessError' 로 리다이렉트 되는 것을 확인할 수 있다.
+
+
+            31.3 커스텀 로그인 페이지
+
+스프링 시큐리티에 기본적으로 로그인 페이지를 제공하지만, 현실적으론 화면 디자인 등의 문제로 사용하기 불편하다.
+때문에 거의 대부분 별도의 URI 를 이용하여 로그인 페이지를 다시 제작해서 사용한다.
+이를 이용한 방식은 접근 제한 페이지와 유사히 직접 특정한 URI 를 지정할 수 있다.
+
+
+    <!-- <security:form-login /> -->
+    <security:form-login login-page="/customLogin" />
+
+
+login-page 속성의 URI 는 반드시 GET 방식으로 접근하는 URI 를 지정한다.
+
+'src/main/java/controller' 패키지의 CommonController 에 '/customLogin' 에 해당하는 메소드를 추가한다.
+
+
+    @GetMapping("/customLogin")
+    public void loginInput(String error, String logout, Model model) {
+        log.info("error: " + error);
+        log.info("logout: " + logout);
+
+        if (error != null) {
+            model.addAttribute("error", "Login Error Check Your Account");
+        }
+
+        if (logout != null) {
+            model.addAttribute("logout", "Logout!!");
+        }
+    }
+
+
+loginInput() 은 GET 방식으로 접근하고, 에러 메시지와 로그아웃 메시지를 파라미터로 사용할 수 있다.
+
+views 폴더에 customLogin.jsp 를 추가한다.
+
+
+    <%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
+    <%@ page contentType="text/html;charset=UTF-8" language="java" %>
+    <html>
+    <head>
+        <title>Title</title>
+    </head>
+    <body>
+    <h1>Custom Login Pages</h1>
+    <h2><c:out value="${error}" /></h2>
+    <h2><c:out value="${logout}" /></h2>
+
+    <form method="post" action="/login">
+        <div>
+            <input type="text" name="username" value="admin">
+        </div>
+        <div>
+            <input type="password" name="password" value="admin">
+        </div>
+        <div>
+            <input type="submit">
+        </div>
+        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}">
+    </form>
+    </body>
+    </html>
+
+
+코드 저장 후 브라우저에서 로그인 정보를 삭제하고 '/sample3/admin' 으로 접근 제한이 필요한 URI 에 접근하여
+작성된 customLogin.jsp 페이지 내용을 볼 수 있다.
+
+customLogin.jsp 를 보면 몇 가지 특이한 점이 있다. 우선 <form> 태그의 action 속성값이 '/login' 으로 지정된 점이다.
+실제 로그인 처리 작업은 '/login' 을 통해 이루어지는데 반드시 POST 방식으로 데이터를 전송해야 한다.
+<input> 태그의 name 속성은 기본적으로 username 과 password 속성을 이용한다.
+
+마지막 <input type='hidden'> 태그는 조금 특이하게 ${_csrf.parameterName} 으로 처리한다.
+이 EL 값은 실제 브라우저에선 '_csrf' 란 이름으로 처리된다. '페이지 소스 보기' 를 보면 같은 태그와 값이 생성된 것을 볼 수 있다.
+
+
+    <input type="hidden" name="_csrf" value="c222d534-ef8f-4259-8a68-d6e9ef998ad9">
+
+
+만일 사용자가 패스워드 등 잘못 입력할 경우 자동으로 다시 로그인 페이지로 이동하게 된다.
+
+
+            31.4 CSRF(Cross-site request forgery) 공격과 토큰
+
+스프링 시큐리티에 POST 방식을 이용한 경우 기본적으로 CSRF 토큰을 이용한다.
+별도 설정이 없으면 스프링 시큐리티가 적용된 사이트의 모든 POST 방식에 CSRF 토큰이 사용되는데
+'사이트간 위조 방지' 를 목적으로 특정 값의 토큰을 사용하는 방식이다.
+
+CSRF 공격은 '사이트간 요청 위조' 라 번역할 수 있는데 서버에서 받아들이는 정보가 특별히 사전 조건을 검증하지 않는 단점을
+이용한 공격 방식이다. 실제로 2008년에 쇼핑몰이 이 기법으로 관리자 계정을 탈취하여 개인 정보들이 유출되었다.
+CSRF 를 이용하여 단순히 게시물의 조회수를 늘리는 등의 조작부터 피해자의 계쩡을 이용한 다양한 공격이 가능하다.
+
+예로 A 란 사이트에 특정 사용자 등급을 변경하는 URI 가 존재하는 것을 공격자가 알고, 해당 URI 엔 약간의 파라미터가 필요하단 것을
+알았다고 가정하자. 이를 이용하여 <form> 태그로 URI 를 추가한 게시물을 작성한다.
+
+A 사이트 관리자는 B 사이트에 방문하게되고 공격자가 작성한 게시물을 보게된다.
+이때 <img> 태그 등으로 사용된 URI 가 호출되고 서버에선 로그인한 관리자의 요청에 의해 공격자는 admin 등급으로 변경된다.
+
+A 사이트 관리자가 관리하는 사이트에 로그인된 상태라면 서버 입장에선 로그인한 사용자의 정상 요청으로 해석된다.
+CSRF 공격은 서버에서 받아들이는 요청을 해석하고 처리할 때 어느 출처에서 호출이 됐는지 따지지않아 생기는 허점을 노리는 공격이다.
+현실적으로 한 사이트 내에서도 공격이 가능하다.
+
+CSRF 공격을 막기 위한 방식이 여러 존재하며 사용자 요청에 대한 출처를 검사하지 않는 허점이니
+사용자 요청에 대한 출처를 의미하는 referer 헤더를 체크하거나 일반적인 경우 잘 사용되지 않고 REST 방식에서 사용되는
+PUT, DELETE 와 같은 방식을 이용하는 등의 방식을 고려해 볼 수 있다.
+
+
+        31.4.1 CSRF 토큰
+
+CSRF 토큰은 사용자가 임의로 변하는 특정 토큰값을 서버에서 체크하는 방식이다.
+서버에선 브라우저에 데이터를 전송할 때 CSRF 토큰을 같이 전송한다. 사용자가 POST 방식 등으로 특정 작업을 할때
+브라우저에서 전송된 CSRF 토큰의 값과 서버가 보관하는 토큰 값을 비교한다. 만일 CSRF 토큰 값이 다르면 작업을 처리하지 않는 방식이다.
+
+서버에서 생성하는 토큰은 일반적으로 난수를 생성하여 공격자가 패턴을 찾을 수 없도록 한다.
+아래는 사용자가 '/customLogin' 을 처음 호출 때와 강제로 쿠키 삭제 후 다시 호출하였을 때의 CSRF 토큰 값이 변경된 것을 확인한 것이다.
+
+
+    <input type="hidden" name="_csrf" value="70583791-afaa-4cca-b464-a33687acc653">
+                                ↓
+    <input type="hidden" name="_csrf" value="4ba2fa8d-5c1a-49b8-b2c4-40f51484b0dd">
+
+
+공격자 입장에선 CSRF 공격을 하려면 변경된 CSRF 토큰 값도 알아야 하므로 고정된 내용의 <form> 태그나 <img> 등을 이용할 수 없게 된다.
+
+
+        31.4.2 스프링 시큐리티의 CSRF 설정
+
+일반적으로 CSRF 토큰은 세션을 통해 보관하고, 브라우저에서 전송된 CSRF 토큰값을 검사하는 방식으로 처리한다.
+스프링 시큐리티에선 CSRF 토큰 생성을 비활성화 하거나 CSRF 토큰을 쿠키로 이용하여 처리하는 등의 설정을 지원한다.
+
+
+    <security:csrf disabled="true" />
+
+
+            31.5 로그인 성공과 AuthenticationSuccessHandler
+
+로그인 처리하다 보면 로그인 성공 이후에 특정한 동작을 하도록 제어하고 싶은 경우가 있다.
+예로 로그인 시 'admin 계정/admin 패스워드' 로 로그인하면 사용자가 어떤 경로로 로그인 페이지로 들어오면 무조건
+'/sample3/admin' 로 이동하게 하거나, 별도의 쿠키 등을 생성하여 처리하고 싶은 경우를 생각할 수 있다.
+
+이런 경우 스프링 시큐리티에는 AuthenticationSuccessHandler 라는 인터페이스를 구현하여 설정할 수 있다.
+'src/main/java/security' 패키지에 CustomLoginSuccessHandler 클래스를 추가한다.
+
+
+    @Log
+    public class CustomLoginSuccessHandler implements AuthenticationSuccessHandler {
+
+        @Override
+        public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
+                                            Authentication auth) throws IOException, ServletException {
+            log.warning("Login Success");
+
+            List<String> roleNames = new ArrayList<>();
+
+            auth.getAuthorities().forEach(authority -> {
+                roleNames.add(authority.getAuthority());
+            });
+
+            log.warning("ROLE NAMES: " + roleNames);
+
+            if(roleNames.contains("ROLE_ADMIN")) {
+                response.sendRedirect("/sample3/admin");
+                return;
+            }
+
+            if(roleNames.contains("ROLE_MEMBER")) {
+                response.sendRedirect("/sample3/member");
+                return;
+            }
+
+            response.sendRedirect("/");
+        }
+    }
+
+
+CustomLoginSuccessHandler 는 로그인 한 사용자에 부여된 권한 Authentication 객체를 이용하여 사용자가 가진 모든 권한을 문자열로
+체크한다. 만일 사용자가 'ROLE_ADMIN' 권한을 가졌다면 로그인 후에 바로 '/sample3/admin' 으로 이동하는 방식이다.
+
+security-context.xml 에선 작성된 CustomLoginSuccessHandler 를 빈으로 등록하고 로그인 성공 후 처리를 담당하는 핸들러를 지정한다.
+
+
+    <bean id="customAccessDenied" class="security.CustomAccessDeniedHandler" />
+    <bean id="customLoginSuccess" class="security.CustomLoginSuccessHandler" />
+
+    <security:http auto-config="true" use-expressions="true">
+        <security:intercept-url pattern="/sample3/all" access="permitAll" />
+
+        <security:intercept-url pattern="/sample3/member" access="hasRole('ROLE_MEMBER')" />
+
+        <security:intercept-url pattern="/sample3/admin" access="hasRole('ROLE_ADMIN')" />
+
+        <!-- <security:access-denied-handler error-page="/accessError" /> -->
+        <security:access-denied-handler ref="customAccessDenied" />
+
+        <!-- <security:form-login /> -->
+        <security:form-login login-page="/customLogin" authentication-success-handler-ref="customLoginSuccess" />
+
+    </security:http>
+
+
+기존과 달리 '/sample3/customLogin' 호출부터 시작하여 로그인하면 권한에 따라 다른 페이지를 호출하는 것을 확인할 수 있다.
+
+
+            31.6 로그아웃 처리와 LogoutSuccessHandler
+
+로그인과 마찬가지로 특정한 URI 를 지정하고, 로그아웃 처리 후 직접 로직을 처리할 수 있는 핸들러를 등록할 수 있다.
+
+
+    <security:logout logout-url="/customLogout" invalidate-session="true" />
+
+
+로그아웃 시 세션을 무효화 시키는 설정이나 특정 쿠키를 지우는 작업을 지정할 수 있다.
+'src/main/java/controller' 패키지의 CommonController 에는 GET 방식으로 로그아웃을 결정하는 페이지에 대한 메소드를 처리한다.
+
+
+    @GetMapping("/customLogout")
+    public void logoutGET() {
+        log.info("custom logout");
+    }
+
+
+views 폴더에 customLogout.jsp 를 추가한다.
+
+
+    <%@ page contentType="text/html;charset=UTF-8" language="java" %>
+    <html>
+    <head>
+        <title>Title</title>
+    </head>
+    <body>
+    <h1>Logout Page</h1>
+    <form action="/customLogout" method="post">
+        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}" />
+        <button>로그아웃</button>
+    </form>
+    </body>
+    </html>
+
+
+로그아웃 역시 로그인과 동일하게 실제 작업은 '/customLogout' 으로 처리하고 POST 방식으로 이루어 진다.
+POST 방식으로 처리되기 때문에 CSRF 토큰 값을 같이 지정한다.
+
+POST 방식으로 처리되는 부분은 아래와 같이 작성할 수 있다.
+
+
+    @PostMapping("/customLogout")
+    public void logoutPost() {
+        log.info("post custom logout");
+    }
+
+
+로그아웃 처리는 실제 어떤 결과를 이용해도 관계 없다.
+
+로그아웃 테스트를 위해 '/sample3/admin.jsp' 페이지에 로그아웃으로 이동하는 링크를 추가한다.
+
+
+    <h1>/sample3/admin page</h1>
+
+    <a href="/customLogout">Logout</a>
+
+
+작성된 코드를 실행하여 로그아웃을 테스트 해보자.
+
+로그인 되지 않은 사용자는 '/sample3/admin' 을 호출한다. 사용자가 로그인한 적 없거나 적당한 권한이 없다면
+로그인화면으로 이동하게 된다. 정상 로그인 시 '/sample3/admin' 화면이 보이게 된다.
+'Logout' 선택 시 GET 방식으로 로그아웃 페이지가 보이게 되고 '/customLogout' 에서 POST 방식으로 로그아웃 되면
+내부적으론 자동으로 로그인 페이지를 호출하게 된다. 이부분은 스프링 시큐리티 기본 설정이 필요하니
+logout-success-url 속성 등을 이용하여 변경할 수 있다.
+
+로그아웃 정상 처리 후 확인 방법은 로그인이 필요한 '/sample3/admin' 을 다시 호출해보는 방식으로 확인할 수 있다.

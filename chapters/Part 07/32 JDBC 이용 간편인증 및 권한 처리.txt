@@ -1,0 +1,358 @@
+security-context.xml 파일의 고정된 몇 개의 계정이지만, 로그인 처리가 되었다.
+현실적으로 JDBC 를 이용한 방식을 살펴보자. 앞서 언급했듯 시큐리티에선 사용자 확인을 '인증' 과 권한을 부여하는 인가 과정이 있다.
+
+인증과 권한 처리는 크게 Authentication Manager 로 이루어지는데 인증이나 권한 정보를 제공하는 존재(Provider)가 필요하고,
+다시 이를 위해 UserDetailsService 란 인터페이스를 구현한 존재를 활요하게 된다.
+
+UserDetailsService 는 스프링 시큐리티 API 내에 이미 CachingUserDetailsService, InMemoryUserDetailsManager,
+JdbcDaoImpl, JdbcUserDetailsManager, LdapUserDetailsManager, LdapUserDetailsService 와 같은 구현 클래스들을 제공하고 있다.
+이전엔 security-context.xml 문자열로 고정 방식은 사실 InMemoryUserDetailsManager 를 이용한 것이다.
+
+이번 예제엔 데이터베이스가 존재하는 상황에서 MyBatis 나 기타 프레임워크 없이 사용하는 방법을 익혀보자.
+security-context.xml 엔 기존 <security:user-service> 는 변경할 것이다.
+
+
+    <!-- HikariCP Connection Pool -->
+    <bean id="hikariConfig" class="com.zaxxer.hikari.HikariConfig">
+        <property name="driverClassName"
+                  value="net.sf.log4jdbc.sql.jdbcapi.DriverSpy" />
+        <property name="jdbcUrl"
+                  value="jdbc:log4jdbc:oracle:thin:@localhost:1521:XE" />
+        <property name="username" value="book_ex" />
+        <property name="password" value="book_ex" />
+    </bean>
+
+    <!-- DataSource -->
+    <bean id="dataSource" class="com.zaxxer.hikari.HikariDataSource"
+          destroy-method="close">
+        <constructor-arg ref="hikariConfig" />
+    </bean>
+
+    <security:authentication-manager>
+        <security:authentication-provider>
+            <security:jdbc-user-service data-source-ref="dataSource" />
+        </security:authentication-provider>
+    </security:authentication-manager>
+
+    <context:component-scan base-package="security" />
+
+
+jdbc-user-service 는 기본적으로 DataSource 가 필요하므로 root-context.xml 에 있는 설정을 추가한다.
+
+
+            32.1 JDBC 를 이용한 테이블 설정
+
+JDBC 를 이용한 인증/권한을 체크하는 방식은 크게 지정된 형식으로 테이블을 생성하여 사용하는 방식과
+기존 작성된 데이터베이스를 이용한 방식이 있다.
+
+스프링 시큐리티가 JDBC 를 이용할 경우 사용하는 클래스는 JdbcUserDetailsManager 클래스인데
+github 에 공개된 코드를 보면 SQL 등이 이용되는 것을 확인할 수 있다.
+(https://github.com/spring-projects/spring-security/blob/master/core/src/main/java/org/springframework/security
+/provisioning/JdbcUserDetailsManager.java).
+
+만일 스프링 시큐리티에 지정된 SQL 을 그대로 이용하고 싶으면 지정된 형식으로 테이블을 생성해주기만 하면 된다.
+
+
+    CREATE TABLE users (
+        username VARCHAR2(50) NOT NULL PRIMARY KEY,
+        password VARCHAR2(50) NOT NULL,
+        ENABLED CHAR(1) DEFAULT '1'
+    );
+
+    CREATE TABLE authorities (
+        username VARCHAR2(50) NOT NULL,
+        authority VARCHAR2(50) NOT NULL,
+        CONSTRAINT fk_authorities_users FOREIGN KEY(username) REFERENCES users(username)
+    );
+
+    CREATE UNIQUE INDEX ix_auth_username ON authorities (username, authority);
+
+    INSERT INTO users(username, password) VALUES ('user00', 'pw00');
+    INSERT INTO users(username, password) VALUES ('member00', 'pw00');
+    INSERT INTO users(username, password) VALUES ('admin00', 'pw00');
+
+    INSERT INTO authorities (username, authority) VALUES ('user00', 'ROLE_USER');
+    INSERT INTO authorities (username, authority) VALUES ('member00', 'ROLE_MANAGER');
+    INSERT INTO authorities (username, authority) VALUES ('admin00', 'ROLE_MANAGER');
+    INSERT INTO authorities (username, authority) VALUES ('admin00', 'ROLE_ADMIN');
+
+    COMMIT;
+
+
+security-context.xml 의 <security:authentication-manager> 내용은 아래와 같이 작성된다.
+
+
+    <security:authentication-manager>
+        <security:authentication-provider>
+            <security:jdbc-user-service data-source-ref="dataSource" />
+        </security:authentication-provider>
+    </security:authentication-manager>
+
+
+WAS 를 실행하여 '/sample3/admin' 과 같이 인증/권한이 필요한 URI 를 호출해 보면 별도 처리 없이 자동으로 필요한
+쿼리들이 호출되는 것을 볼 수 있다.
+
+쿼리들이 실행은 됐지만 아쉽게 패스워드가 평문으로 처리되어 예외가 발생한다.
+
+
+        32.1.1 PasswordEncoder 문제해결
+
+이미 언급했듯 시큐리티 5부터 기본적으로 PasswordEncoder 를 지정해야 한다.
+임시로 '{noop}' 접두어로 잠시 피해서 진행되었지만, 데이터베이스 등을 이용할 경우 PasswordEncoder 를 이용해야 한다.
+
+문제는 패스워드 인코딩 처리 후 사용자 계정 등을 입력 시 인코딩 작업이 추가되어야 하기 때문에 할 일이 많다는 점이다.
+스프링 시큐리티의 PasswordEncoder 는 인터페이스로 설계되어 있고, 이미 여러 종류의 구현 클래스가 존재한다.
+
+PasswordEncoder 이용하고 싶지 않을 때 NoOpPasswordEncoder 로 처리할 수 있었지만 Deprecated 되어 사용할 수 없다.
+예제에선 직접 암호화가 없는 PasswordEncoder 를 구현하여 사용한다.
+
+'src/main/java/security' 패키지에 CustomNoOpPasswordEncoder 클래스를 생성한다.
+
+
+    @Log
+    public class CustomNoOpPasswordEncoder implements PasswordEncoder {
+
+        @Override
+        public String encode(CharSequence rawPassword) {
+            log.warning("before encode: " + rawPassword);
+
+            return rawPassword.toString();
+        }
+
+        @Override
+        public boolean matches(CharSequence rawPassword, String encodedPassword) {
+            log.warning("matched: " + rawPassword + ": " + encodedPassword);
+
+            return rawPassword.toString().equals(encodedPassword);
+        }
+    }
+
+
+PasswordEncoder 인터페이스엔 encode() 와 matches() 메소드가 존재하니 위와 같이 직접 처리한다.
+
+security-context.xml 에 작성된 CustomNoOpPasswordEncoder 클래스를 빈으로 등록한다.
+
+
+    <bean id="customAccessDenied" class="security.CustomAccessDeniedHandler" />
+    <bean id="customLoginSuccess" class="security.CustomLoginSuccessHandler" />
+    <bean id="customPasswordEncoder" class="security.CustomNoOpPasswordEncoder" />
+
+    <security:http auto-config="true" use-expressions="true">
+        ...
+    </security:http>
+
+    <security:authentication-manager>
+        <security:authentication-provider>
+            <security:jdbc-user-service data-source-ref="dataSource" />
+            <security:password-encoder ref="customPasswordEncoder" />
+        </security:authentication-provider>
+    </security:authentication-manager>
+
+
+WAS 실행하여 로그인을 확인하면 정상 처리되는 것을 볼 수 있다.
+
+
+            32.2 기존 테이블을 이용하는 경우
+
+스프링 시큐리티가 기본적으로 이용하는 테이블 구조를 그대로 생성하여 사용하는 방식도 나쁘진 않지만, 기존 회원 관련 데이터베이스가
+구축되어 있었다면 이를 사용하는 것은 더 복잡할 수 있다. JDBC 를 이용하여 기존 테이블이 있다면 약간 지정된 결과를 반환하는
+쿼리를 작성해주는 작업으로도 처리가 가능하다.
+
+<security:jdbc-user-service> 태그엔 'users-by-username-query' 속성과 'authorities-by-user-name-query' 속성에
+적당한 쿼리문을 지정해 주면 JDBC 를 이용하여 설정 그대로 사용할 수 있다.
+
+
+        32.2.1 인증/권한을 위한 테이블 설계
+
+일반적인 회원 관련 ㅌ테이블, 권한 테이블을 설계하여 활용한다.
+
+
+    CREATE TABLE tbl_member (
+        userid VARCHAR2(50) NOT NULL PRIMARY KEY,
+        userpw VARCHAR2(100) NOT NULL,
+        username VARCHAR2(100) NOT NULL,
+        regdate DATE DEFAULT SYSDATE,
+        updatedate DATE DEFAULT SYSDATE,
+        ENABLED CHAR(1) DEFAULT '1'
+    );
+
+    CREATE TABLE tbl_member_auth (
+        userid VARCHAR2(50) NOT NULL,
+        auth VARCHAR2(50) NOT NULL,
+        CONSTRAINT fk_member_auth FOREIGN KEY(userid) REFERENCES tbl_member(userid)
+    );
+
+
+        32.2.2 BCryptPasswordEncoder 클래스를 이용한 패스워드 보호
+
+이번 예제엔 스프링 시큐리티에서 제공되는 BCryptPasswordEncoder 클래스를 이용하여 패스워드를 암호화하여 처리한다.
+bcrypt 는 태생 자체가 패스워드를 저장 용도로 설계된 해시 함수로 특정 문자열을 암호화하고, 체크하는 쪽에선
+암호화된 패스워드가 가능한 패스워드인지만 확인하고 다시 원문으로 되돌리지 못한다.
+
+BCryptPasswordEncoder 는 이미 스프링 시큐리티 API 안에 포함되어 있으니
+이를 활용하여 security-context.xml 에 설정한다.
+
+
+    <bean id="customAccessDenied" class="security.CustomAccessDeniedHandler" />
+    <bean id="customLoginSuccess" class="security.CustomLoginSuccessHandler" />
+    <!-- <bean id="customPasswordEncoder" class="security.CustomNoOpPasswordEncoder" /> -->
+    <bean id="bcryptPasswordEncoder" class="org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder" />
+
+    <security:http auto-config="true" use-expressions="true">
+        ...
+    </security:http>
+
+    <security:authentication-manager>
+        <security:authentication-provider>
+            <security:jdbc-user-service data-source-ref="dataSource" />
+            <!-- <security:password-encoder ref="customPasswordEncoder" />-->
+            <security:password-encoder ref="bcryptPasswordEncoder" />
+        </security:authentication-provider>
+    </security:authentication-manager>
+
+
+bcrypt 방식을 이용한 PasswordEncoder 는 이미 스프링 시큐리티에서 제공하니 빈으로 추가하고,
+PasswordEncoder 는 org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder 로 지정한다.
+
+
+    인코딩된 패스워드를 가지는 사용자 추가
+
+실제 데이터베이스에 기록하는 회원 정보는 BCryptPasswordEncoder 를 이용하여 암호화된 상태로 넣어줘야 하므로 테스트 코드를 작성해
+처리한다.
+
+'src/test/java/security' 패키지를 생성하고, MemberTests 클래스를 추가한다.
+
+
+    @RunWith(SpringJUnit4ClassRunner.class)
+    @ContextConfiguration({"file:src/main/webapp/WEB-INF/spring/root-context.xml",
+            "file:src/main/webapp/WEB-INF/spring/security-context.xml"})
+    // @ContextConfiguration(classes = {RootConfig.class})
+    @Log4j
+    public class MemberTests {
+        @Setter(onMethod_ = @Autowired)
+        private PasswordEncoder pwencoder;
+
+        @Setter(onMethod_ = @Autowired)
+        private DataSource ds;
+
+        @Test
+        public void testInsertMember() {
+            String sql = "INSERT INTO tbl_member(userid, userpw, username) VALUES (?, ?, ?)";
+
+            for (int i = 0; i < 100; i++) {
+                Connection con = null;
+                PreparedStatement pstmt = null;
+
+                try {
+                    con = ds.getConnection();
+                    pstmt = con.prepareStatement(sql);
+
+                    pstmt.setString(2, pwencoder.encode("pw" + i));
+
+                    if(i < 80) {
+                        pstmt.setString(1, "manager" + i);
+                        pstmt.setString(3, "운영자" + i);
+                    } else {
+                        pstmt.setString(1, "admin" + i);
+                        pstmt.setString(3, "관리자" + i);
+                    }
+
+                    pstmt.executeUpdate();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                } finally {
+                    if(pstmt != null) { try { pstmt.close(); } catch(Exception e) {} }
+                    if(con != null) { try { con.close(); } catch(Exception e) {} }
+                }
+            }
+        }
+    }
+
+
+MemberTests 엔 PasswordEncoder 와 DataSource 를 주입하여 100명의 회원 정보를 기록한다.
+PasswordEncoder 를 이용하여 암호화된 문자열을 추가하는 과정을 통하기 때문에 위 코드를 실행하고 나면
+BCryptPasswordEncoder 를 이용하여 암호화된 패스워드가 기록된 것을 확인할 수 있다.
+
+
+    생성된 사용자에 권한 추가하기
+
+사용자 생성 완료 후 tbl_member_auth 테이블에 사용자의 권한에 대한 정보도 tbl_member_auth 에 추가해야 한다.
+'user00 ~ user79' 까진 'ROLE_USER' 권한을, 'manager80 ~ manager89' 까지는 'ROLE_MEMBER' 권한을,
+'admin90 ~ admin99' 까지는 'ROLE_ADMIN' 권한을 부여하는 코드를 아래와 같이 작성하여 실행한다.
+
+
+    @Test
+    public void testInsertAuth() {
+        String sql = "INSERT INTO tbl_member_auth(userid, auth) VALUES (?, ?)";
+
+        for (int i = 0; i < 100; i++) {
+            Connection con = null;
+            PreparedStatement pstmt = null;
+
+            try {
+                con = ds.getConnection();
+                pstmt = con.prepareStatement(sql);
+
+                if(i < 80) {
+                    pstmt.setString(1, "user" + i);
+                    pstmt.setString(2, "ROLE_USER");
+                } else if(i < 90) {
+                    pstmt.setString(1, "manager" + i);
+                    pstmt.setString(2, "ROLE_MEMBER");
+                } else {
+                    pstmt.setString(1, "admin" + i);
+                    pstmt.setString(2, "ROLE_ADMIN");
+                }
+
+                pstmt.executeUpdate();
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                if(pstmt != null) { try { pstmt.close(); } catch(Exception e) {} }
+                if(con != null) { try { con.close(); } catch(Exception e) {} }
+            }
+        }
+    }
+
+
+        32.2.3 쿼리를 이용한 인증
+
+위에 지정한 방식이 아닌 테이블 구조를 이용한 경우 인증에 필요한 쿼리(users-by-username-query)와
+권한 확인에 필요한 쿼리(authorities-by-username-query)를 이용한 처리를 한다.
+
+
+    user-by-username-query
+
+    SELECT
+        userid username, userpw, password, enabled
+    FROM
+        tbl_member
+    WHERE userid = 'admin90'
+
+
+    authorities-by-username-query
+
+    SELECT
+        userid username, auth authority
+    FROM
+        tbl_member_auth
+    WHERE userid = 'admin90'
+
+
+위 쿼리문을 PreparedStatement 에서 사용한 구문으로 바꾸고 <security:jdbc-user-service> 태그의 속성으로
+지정하면 아래와 같은 형태가 된다.
+
+
+    <security:authentication-manager>
+        <security:authentication-provider>
+            <!-- <security:jdbc-user-service data-source-ref="dataSource" /> -->
+            <securoty:jdbc-user-service data-source-ref="dataSource"
+                    users-by-username-query="SELECT userid, userpw, enabled FROM tbl_member WHERE userid = ?"
+                    authorities-by-username-query="SELECT userid, auth FROM tbl_member_auth WHERE userid = ?" />
+            <!-- <security:password-encoder ref="customPasswordEncoder" />-->
+            <security:password-encoder ref="bcryptPasswordEncoder" />
+        </security:authentication-provider>
+    </security:authentication-manager>
+
+
+브라우저로 'admin90/pw90' 으로 로그인하면 정상 처리되는 것을 확인할 수 있다.

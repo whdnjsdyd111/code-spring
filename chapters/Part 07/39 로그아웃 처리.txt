@@ -1,0 +1,64 @@
+프로젝트에 적용된 템플릿에 로그인 페이지의 링크는 includes 폴더 내에 header.jsp 에 정의되어 있다.
+header.jsp 를 수정하여 스프링 시큐리티를 이용하도록 수정하고, 로그인 상태에선 로그아웃 페이지로 이동한다.
+
+
+    <sec:authorize access="isAuthenticated()">
+    <a class="dropdown-item" href="/customLogout" data-toggle="modal" data-target="#logoutModal">
+        <i class="fas fa-sign-out-alt fa-sm fa-fw mr-2 text-gray-400"></i>
+        Logout
+    </a>
+    </sec:authorize>
+    <sec:authorize access="isAnonymous()">
+        <a class="dropdown-item" href="/customLogin" data-toggle="modal" data-target="#logoutModal">
+            <i class="fas fa-sign-out-alt fa-sm fa-fw mr-2 text-gray-400"></i>
+            Login
+        </a>
+    </sec:authorize>
+
+
+브라우저에 로그인한 겨우와 로그인하지 않은 경우를 비교해본다.
+
+
+            39.1 로그아웃 페이지
+
+로그아웃 페이지는 'customLogout.jsp' 로 제작하고 사용하는 부트스트랩 테마의 로그인 페이지를 수정하여
+'/customLogout' 으로 이용한다.
+
+
+    ...
+        <form role="form" method="post" action="/customLogout" class="user">
+            <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}" />
+            <button type="button" class="btn btn-success btn-user btn-block">
+                Logout
+            </button>
+        </form>
+    ...
+    <!-- Custom scripts for all pages-->
+    <script src="${pageContext.request.contextPath}/resources/js/sb-admin-2.min.js"></script>
+    <script>
+        $('.btn-success').on("click", function(e) {
+            e.preventDefault();
+            $("form").submit();
+        });
+    </script>
+    <c:if test="${param.logout != null}">
+        <script>
+            $(document).ready(function(e) {
+                alert("로그아웃하였습니다.")
+            });
+        </script>
+    </c:if>
+
+
+브라우저에서 로그아웃 시 자동으로 로그인 페이지로 이동하면서 경고창을 보여주게 된다.
+
+
+            39.2 로그인 후 '/board/list' 로 이동하기
+
+로그인 후에 기본적으로 '/' 경로로 이동하니 HomeController 에 지정된 대로
+home.jsp 로 이동하게 된다. 만일 로그인 후 '/board/list' 로 이동하고자 하면 아래와 같이 처리할 수 있다.
+
+
+<script>
+	self.location = "/board/list";
+</script>

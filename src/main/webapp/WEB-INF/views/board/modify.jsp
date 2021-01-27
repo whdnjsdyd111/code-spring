@@ -1,5 +1,6 @@
 <%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
 <%@ taglib prefix="fmt" uri="http://java.sun.com/jsp/jstl/fmt" %>
+<%@ taglib prefix="sec" uri="http://www.springframework.org/security/tags" %>
 <%--
   Created by IntelliJ IDEA.
   User: PC
@@ -65,6 +66,7 @@
                         <div class="card-header">Board Modify</div>
                         <div class="card-body">
                             <form role="form" action="/board/modify" method="post">
+                                <input type="hidden" name="${_crsf.parameterName}" value="${_csrf.token}">
                                 <!-- 추가 -->
                                 <input type="hidden" name="pageNum" value='<c:out value="${cri.pageNum}"/>'>
                                 <input type="hidden" name="pageNum" value='<c:out value="${cri.amount}"/>'>
@@ -94,8 +96,13 @@
                                     <label>Update Date</label>
                                     <input class="form-control" name="regDate" value='<fmt:formatDate value="${board.updateDate}" pattern="yyyy/MM/dd"/>' readonly >
                                 </div>
-                                <button type="submit" data-oper="modify" class="btn btn-outline-dark">Modify</button>
-                                <button type="submit" data-oper="remove" class="btn btn-danger">Remove</button>
+                                <sec:authentication property="principal" var="pinfo" />
+                                <sec:authorize access="isAuthenticated()">
+                                    <c:if test="${pinfo.username eq board.writer}">
+                                        <button type="submit" data-oper="modify" class="btn btn-outline-dark">Modify</button>
+                                        <button type="submit" data-oper="remove" class="btn btn-danger">Remove</button>
+                                    </c:if>
+                                </sec:authorize>
                                 <button type="submit" data-oper="list" class="btn btn-info">List</button>
                             </form>
                         </div>
@@ -292,6 +299,9 @@
             return true;
         }
 
+        var csrfHeaderName = "${_csrf.headerName}";
+        var csrfTokenValue = "${_csrf.token}";
+
         $("input[type='file']").change(function(e) {
             var formData = new FormData();
 
@@ -312,6 +322,9 @@
                 contentType: false,
                 data: formData,
                 type: 'POST',
+                beforeSend: function(xhr) {
+                    xhr.setRequestHeader(csrfHeaderName, csrfTokenValue);
+                },
                 dataType: 'json',
                 success: function(result) {
                     console.log(result);

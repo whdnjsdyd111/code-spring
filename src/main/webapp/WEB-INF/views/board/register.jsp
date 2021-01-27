@@ -1,3 +1,4 @@
+<%@ taglib prefix="sec" uri="http://www.springframework.org/security/tags" %>
 <%--
   Created by IntelliJ IDEA.
   User: PC
@@ -114,6 +115,7 @@
                         <div class="card-header">Board Register</div>
                         <div class="card-body">
                             <form role="form" action="/board/register" method="post">
+                                <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}">
                                 <div class="form-group">
                                     <label>Title</label><input class="form-control" name="title">
                                 </div>
@@ -121,7 +123,8 @@
                                     <label>Text Area</label><textarea class="form-control" rows="3" name="content" ></textarea>
                                 </div>
                                 <div class="form-group">
-                                    <label>Writer</label><input class="form-control" name="writer">
+                                    <label>Writer</label><input class="form-control" name="writer"
+                                        value='<sec:authentication property="principal.username" />' readonly>
                                 </div>
                                 <button type="submit" class="btn btn-outline-dark">Submit Button</button>
                                 <button type="reset" class="btn btn-outline-dark">Reset Button</button>
@@ -207,6 +210,9 @@
             return true;
         }
 
+        var csrfHeaderName = "${_csrf.headerName}";
+        var csrfTokenValue = "${_csrf.token}";
+
         $("input[type='file']").change(function(e) {
             var formData = new FormData();
 
@@ -225,6 +231,9 @@
                 url: '/uploadAjaxAction',
                 processData: false,
                 contentType: false,
+                beforeSend: function(xhr) {
+                    xhr.setRequestHeader(csrfHeaderName, csrfTokenValue)
+                },
                 data: formData,
                 type: 'POST',
                 dataType: 'json',
@@ -285,6 +294,9 @@
             $.ajax({
                 url: '/deleteFile',
                 data: {fileName: targetFile, type: type},
+                beforeSend: function(xhr) {
+                    xhr.setRequestHeader(csrfHeaderName, csrfTokenValue)
+                },
                 dataType: 'text',
                 type: 'POST',
                 success: function(result) {

@@ -1,0 +1,292 @@
+JDBC 이용한 방식으로도 데이터베이스를 처리하여 편하게 사용할 수 있지만 한가지 아쉬운점은
+사용자의 여러 정보 중 제한적인 내용만을 이용한다는 단점이 있다.
+스프링 시큐리티에서 username 이라 부르는 사용자의 정보만을 이용하기 때문에 실제 프로젝트에서 사용자 이름이나
+이메일 등의 자세한 정보를 이용할 경우엔 충분하지 못하다는 단점이 있다.
+
+이 문제를 해결하기 위해 직접 UserDetailsService 를 구현하는 방식을 이용하는 것이 좋다.
+흔히 커스텀 UserDetailsService 라고 하는데, 이를 이용하면 원하는 객체를 인증과 권한 체크에 활용할 수 있기 때문에 많이 사용된다.
+
+스프링 시큐리티의 UserDetailsService 인터페이스는 단 하나의 메소드만 존재한다.
+
+loadUserByUsername() 이란 메소드의 반환 타입이 UserDetails 역시 인터페이스로 사용자 정보와 권한 정보 등을 담는 타입이다.
+UserDetails 타입은 getAuthorities(), getPassword(), getUserName() 등 여러 추상 메소드를 가져,
+개발 전 이를 직접 구현할 지 UserDetails 인터페이스를 구현해둔 스프링 시큐리티의 여러 하위 클래스를 이용할지 판단해야 한다.
+
+가장 일반적으로 많이 사용되는 방법은 하위 클래스 중 org.springframework.security.core.userdetails.User 클래스를
+상속하는 형태이다. 예제는 커스텀 UserDetailsService 를 이용한 방식을 이용하기 위해
+MyBatis 를 이용하는 MemberMapper 와 서비스를 작성하고, 이를 스프링 시큐리티와 연결하여 사용하는 방식으로 진행한다.
+
+
+            33.1 회원 도메인, 회원 Mapper 설계
+
+예제를 위해 앞서 만든 tbl_member 테이블과 tbl_member_auth 테이블을 MyBatis 를 이용한 코드를 처리한다.
+'src/main/java/domain' 패키지에 MemberVO 와 AuthVO 클래스를 설계한다.
+
+
+    @Data
+    public class MemberVO {
+        private String userid;
+        private String userpw;
+        private String userName;
+        private boolean enabled;
+
+        private Date regDate;
+        private Date updateDate;
+        private List<AuthVO> authList;
+    }
+
+
+Member 클래스는 내부적으로 여러 개의 사용자 권한을 가질 수 있는 구조로 설계한다.
+
+
+    @Data
+    public class AuthVO {
+        private String userid;
+        private String auth;
+    }
+
+
+AuthVO 는 tbl_member_auth 컬럼을 그대로 반영하여 userid, auth 를 지정한다.
+
+
+        33.1.1 MemberMapper
+
+회원에 대한 정보는 MyBatis 를 이용하여 처리할 지 MemberMapper 를 작성하여 tbl_member 와 tbl_member_auth
+테이블에 데이터를 추가하고, 조회할 수 있도록 작성한다. Member 객체를 가져오는 경우 한 번에 tbl_member 와 tbl_member_auth
+를 조인하여 처리할 수 있는 방식으로 MyBatis 의 ResultMap 이란 기능을 사용한다.
+
+한 MemberVO 인스턴스는 내부적으로 여러 AuthVO 를 가지는데 흔히 '1 + N 관계' 라 할 수 있다.
+즉, 하나의 데이터가 여러 하위 데이터를 포함하고 있는 것을 의미한다. MyBatis 의 ResultMap 을 이용하면 한 쿼리로
+MemberVO 와 내부 AuthVO 의 리스트까지 처리할 수 있다.
+
+MyBatis 를 이용한 MemberMapper 인터페이스를 'src/main/java/mapper' 패키지를 작성하여 추가한다.
+
+
+    public interface MemberMapper {
+        public MemberVO read(String userid);
+    }
+
+
+'src/main/resources/mapper' 폴더에 MemberMapper.xml 을 작성한다.
+
+
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE mapper
+            PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+            "http://mybatis.org/schema/mybatis-3-mapper.dtd">
+    <mapper namespace="mapper.MemberMapper">
+
+        <resultMap id="memberMap" type="domain.MemberVO">
+            <id property="userid" column="userid" />
+            <result property="userid" column="userid" />
+            <result property="userpw" column="userpw" />
+            <result property="userName" column="userName" />
+            <result property="regDate" column="regdate" />
+            <result property="updateDate" column="updatedate" />
+            <collection property="authList" resultMap="authMap">
+
+            </collection>
+        </resultMap>
+
+        <resultMap id="authMap" type="domain.AuthVO">
+            <result property="userid" column="userid" />
+            <result property="auth" column="auth" />
+        </resultMap>
+
+        <select id="read" resultMap="memberMap">
+            SELECT
+                mem.userid, userpw, username, enabled, regdate, updatedate, auth
+            FROM
+                tbl_member mem LEFT OUTER JOIN tbl_member_auth auth ON mem.userid = auth.userid
+            WHERE mem.userid = #{userid}
+        </select>
+    </mapper>
+
+
+id 가 'read' 인 <select> 태그는 resultMap 속성을 지정한다.
+
+
+admin99	$2a$10$dWjT8WbA6l4GPLk4CNZbSuD3cvRWMmcCXB3nm5IGP2.V6XADm2luG	관리자99	1	21/01/24	21/01/24 ROLE_MEMBER
+admin99	$2a$10$dWjT8WbA6l4GPLk4CNZbSuD3cvRWMmcCXB3nm5IGP2.V6XADm2luG	관리자99	1	21/01/24	21/01/24 ROLE_ADMIN
+
+
+위 결과 끝을 보면 'AUTH' 의 값은 다르지만 나머지는 같다. 즉 MemberVO 는 하나이고, AuthVO 는 2개가 된 결과다.
+memberMap 이란 이름을 가진 <resultMap> 은 <result> 와 <collection> 을 이용해 바깥 객체(MemberVO)와 안쪽 객체(AuthVO)들로
+구성할 수 있다. MyBatis 에선 이처럼 한 결과에 부가적으로 여러 데이터를 처리할 경우 1:N 결과를 처리할 수 있는
+<resultMap> 태그를 지원한다.
+
+
+        33.1.2 MemberMapper 테스트
+
+MemberMapper 를 이용해 MemberVO 를 구성하고 이를 스프링 시큐리티에 사용할 것이니 연동하기 전에 MemberMapper 가 정상 동작하는지
+확인한다.
+
+쿼리 동작은 테스트 코드를 이용해 결과를 확인한다. 'src/test/java/mapper' 패키지에 MemberMapperTests 클래스를 작성한다.
+
+
+    @RunWith(SpringJUnit4ClassRunner.class)
+    @ContextConfiguration("file:src/main/webapp/WEB-INF/spring/root-context.xml")
+    // @ContextConfiguration(classes = {RootConfig.class})
+    @Log4j
+    public class MemberMapperTests {
+        @Setter(onMethod_ = @Autowired)
+        private MemberMapper mapper;
+
+        @Test
+        public void testRead() {
+            MemberVO vo = mapper.read("admin99");
+
+            log.info(vo);
+
+            vo.getAuthList().forEach(authVO -> log.info(authVO));
+        }
+    }
+
+
+testRead() 에서 'admin99' 데 대한 정보를 조회한다. 정상적이면 MemberVO 와 내부 AuthVO 가 구성된 것을 확인할 수 있다.
+
+
+
+    INFO : mapper.MemberMapperTests - MemberVO(userid=admin99,
+    userpw=$2a$10$dWjT8WbA6l4GPLk4CNZbSuD3cvRWMmcCXB3nm5IGP2.V6XADm2luG,
+    userName=관리자99, enabled=false, regDate=Sun Jan 24 18:56:40 KST 2021,
+    updateDate=Sun Jan 24 18:56:40 KST 2021,
+    authList=[AuthVO(userid=admin99, auth=ROLE_MEMBER), AuthVO(userid=admin99, auth=ROLE_ADMIN)])
+
+
+            33.2 CustomUserDetailsService 구성
+
+MyBatis 로 MemberVO 와 같이 회원을 처리하는 부분이 구성되었다면 이를 이용하여 스프링 시큐리티의 UserDetailsService 를
+구현하는 클래스를 직접 작성하도록 한다. CustomUserDetailsService 는 스프링 시큐리트의 UserDetailsService 를 구현하고,
+MemberMapper 타입의 인스턴스를 주입받아서 실제 기능을 구현한다.
+
+
+    UserDetailsService
+            ↑
+    CustomUserDetailsService    ←   MemberMapper
+
+
+'src/main/java/security' 패키지에 CustomUserDetailsService 클래스를 작성한다.
+
+
+    @Override
+    public UserDetails loadUserByUsername(String userName) throws UsernameNotFoundException {
+        log.info("Load User By UserName : " + userName);
+
+        return null;
+    }
+
+
+작성한 클래스는 스프링 시큐리티로 테스트 진행 후 추가로 채우고, 우선 로그만 기록하자.
+
+CustomUserDetailsService 클래스는 security-context.xml 을 이용하여 스프링 빈으로 등록한다.
+
+
+    <bean id="customAccessDenied" class="security.CustomAccessDeniedHandler" />
+    <bean id="customLoginSuccess" class="security.CustomLoginSuccessHandler" />
+    <!-- <bean id="customPasswordEncoder" class="security.CustomNoOpPasswordEncoder" /> -->
+    <bean id="bcryptPasswordEncoder" class="org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder" />
+    <bean id="customUserDetailsService" class="security.CustomUserDetailsService" />
+
+    <security:http auto-config="true" use-expressions="true">
+        ...
+    </security:http>
+
+    <security:authentication-manager>
+        <security:authentication-provider user-service-ref="customUserDetailsService">
+            <!-- <security:jdbc-user-service data-source-ref="dataSource" /> -->
+            <!-- <securoty:jdbc-user-service data-source-ref="dataSource"
+                    users-by-username-query="SELECT userid, userpw, enabled FROM tbl_member WHERE userid = ?"
+                    authorities-by-username-query="SELECT userid, auth FROM tbl_member_auth WHERE userid = ?" /> -->
+            <!-- <security:password-encoder ref="customPasswordEncoder" />-->
+            <security:password-encoder ref="bcryptPasswordEncoder" />
+        </security:authentication-provider>
+    </security:authentication-manager>
+
+
+변경된 부분은 authentication-provider 속성 값을 작성한 CustomUserDetailsService 로 지정한 부분이다.
+프로젝트 실행 후 로그인 시도하면 지정된 로그가 출력되고, 의존성 주입 등이 정상처리 되는지 확인하자.
+
+
+ security.CustomUserDetailsService.loadUserByUsername Load User By UserName : admin99
+
+
+        33.2.1 MemberVO 를 UserDetails 타입으로 변환하기
+
+스프링 시큐리티의 UserDetailsService 는 loadUserByUsername() 라는 하나의 추상 메소드만을 가지고 있으며
+리턴 타입은 org.springframework.security.core.userdetails.userDetails 라는 타입이다.
+모든 작업에 문제가 없으면 최종적으로 MemberVO 의 인스턴스를 스프링 시큐리티의 UserDetails 타입으로 변환하는 작업을 처리해야 한다.
+예제는 UserDetailsService 를 구현한 org.springframework.security.core.userdetails.User 클래스를 상속해서
+CustomUser 라는 클래스를 생성한다.
+
+
+    UserDetails
+        ↑
+    User
+        ↑
+    CustomUser  MemberVO    AuthVO, AuthVO, AuthVO, ...
+
+
+물론 MemberVO 클래스를 직접 수정해서 UserDetails 인터페이스를 구현하도록 하는 방법도 좋지만, 가능하면
+기존 클래스를 수정하지 않고 확장하는 방법이 더 낫다고 생각하여 'src/main/java/security' 패키지에 별도 domain 패키지를 추가하여
+CustomUser 클래스를 생성한다.
+
+
+    @Getter
+    public class CustomUser extends User {
+        private static final long serialVersionUID = 1L;
+
+        private MemberVO member;
+
+        public CustomUser(String username, String password,
+                          Collection<? extends GrantedAuthority> authorities) {
+            super(username, password, authorities);
+        }
+
+        public CustomUser(MemberVO vo) {
+            super(vo.getUserid(), vo.getUserpw(), vo.getAuthList().stream()
+                    .map(auth -> new SimpleGrantedAuthority(auth.getAuth())).collect(Collectors.toList()));
+            this.member = vo;
+        }
+    }
+
+
+CustomUser 는 org.springframework.security.core.userdetails.User 클래스를 상속하기 때문에 부모 클래스의 생성자를
+호출해야 정상 객체를 생성할 수 있다. 예제는 MemberVO 를 파라미터로 전달하여 User 클래스에 맞게 생성자를 호출한다.
+이 과정에서 AuthVO 인스턴스는 GrantedAuthority 객체로 변환해야 하므로 stream() 과 map() 을 이용하여 처리한다.
+
+변경 후 CustomUserDetailsService 에서 CustomUser 를 반환하도록 수정해 본다.
+
+
+    @Log
+    public class CustomUserDetailsService implements UserDetailsService {
+        @Setter(onMethod_ = @Autowired)
+        private MemberMapper memberMapper;
+
+        @Override
+        public UserDetails loadUserByUsername(String userName) throws UsernameNotFoundException {
+            log.info("Load User By UserName : " + userName);
+
+            // userName means userid
+            MemberVO vo = memberMapper.read(userName);
+
+            log.warning("queried by member mapper: " + vo);
+
+            return vo == null ? null : new CustomUser(vo);
+        }
+    }
+
+
+loadUserByUsername() 은 내부적으로 MemberMapper 를 이용하여 MemberVO 를 조회하고, 만일 MemberVO 의 인스턴스를 얻을 수
+있다면 CustomUser 타입의 객체로 변환하여 반환한다. 브라우저에서 테스트해 보면 로그인 시 CustomUserDetailsService 가
+동작하는 것을 확인할 수 있다.
+
+
+    security.CustomUserDetailsService.loadUserByUsername Load User By UserName : admin99
+    security.CustomUserDetailsService.loadUserByUsername queried by member mapper: MemberVO(userid=admin99,
+        userpw=$2a$10$dWjT8WbA6l4GPLk4CNZbSuD3cvRWMmcCXB3nm5IGP2.V6XADm2luG, userName=관리자99,
+        enabled=false, regDate=Sun Jan 24 18:56:40 KST 2021, updateDate=Sun Jan 24 18:56:40 KST 2021,
+        authList=[AuthVO(userid=admin99, auth=ROLE_MEMBER), AuthVO(userid=admin99, auth=ROLE_ADMIN)])
+    security.CustomLoginSuccessHandler.onAuthenticationSuccess Login Success
+    security.CustomLoginSuccessHandler.onAuthenticationSuccess ROLE NAMES: [ROLE_ADMIN, ROLE_MEMBER]
+    controller.SampleController3.doAdmin admin only

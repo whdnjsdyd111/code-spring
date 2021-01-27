@@ -1,0 +1,212 @@
+스프링 시큐리티 기본 동작 방식은 서블릿에 여러 종류의 필터와 인터셉터를 이용하여 처리된다.
+필터는 서블릿에서 말하는 단순한 필터를 의미하고, 언터셉터는 스프링에서 필터와 유사한 역할을 한다.
+
+필터와 인터셉터는 특정 서블릿이나 컨트롤러의 접근에 관여하는 점에서 유사하지만 결정적인 차이를 구분하자면
+필터는 스프링과 무관히 서블릿 자원이고, 인터셉터는 스프링 빈으로 관리되며 스프링의 컨텍스트 내에 속하는 처이가 있다.
+
+스프링 시큐리티를 이용하게 되면 인터셉터와 필터를 이용하여 별도의 컨텍스트를 생성하여 처리된다.
+스프링 시큐리티는 현재 동작하는 스프링 컨텍스트 내에 동작하니 이미 컨텍스트에 포함된 여러 빈들을 같이 사용하여
+다양한 방식의 인증 처리가 가능하도록 설계할 수 있다.
+
+
+            30.1 Spring Web Security 설정
+
+스프링 시큐리티를 이론으로 공부하는 것은 나중에하고 동작을 먼저 살펴본다.
+
+스프링 시큐리티는 스프링 여러 하위 프로젝트 중 하나다.
+JSP 에선 스프링 시큐리티 관련 태그 라이브러리를 활용할 수 있도록 spring-security-taglib 을 추가한다.
+
+
+    <dependency>
+        <groupId>org.springframework.security</groupId>
+        <artifactId>spring-security-web</artifactId>
+        <version>${org.springframework-version}</version>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.security</groupId>
+        <artifactId>spring-security-config</artifactId>
+        <version>${org.springframework-version}</version>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.security</groupId>
+        <artifactId>spring-security-core</artifactId>
+        <version>${org.springframework-version}</version>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.security</groupId>
+        <artifactId>spring-security-taglibs</artifactId>
+        <version>${org.springframework-version}</version>
+    </dependency>
+
+
+        30.1.1 security-context.xml
+
+스프링 시큐리티는 단독으로 설정할 수 있어 root-context.xml 이나 servlet-context.xml 과는 별도로
+security-context.xml 을 따로 작성하는 것이 좋다. security-context.xml 파일은 메뉴에 'Spring Bean Configuration File'
+메뉴로 일반 XML 파일을 생성하자.
+
+스프링 시큐리티 5 버전에서 네임스페이스에 5.0 XML 의 네임스페이스를 이용해야 한다.
+
+
+    <beans xmlns="http://www.springframework.org/schema/beans"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:security="http://www.springframework.org/schema/security"
+           xsi:schemaLocation="http://www.springframework.org/schema/security
+           http://www.springframework.org/schema/security/spring-security-5.0.xsd">
+
+
+XML 로 스프링 시큐리티 설정 시 5.0 네임스페이스에 문제가 발생하여 security-context.xml 은 아래와 같이 수정한다.
+
+
+    <beans xmlns="http://www.springframework.org/schema/beans"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:security="http://www.springframework.org/schema/security"
+           xsi:schemaLocation="http://www.springframework.org/schema/security">
+
+
+        30.1.2 web.xml 설정
+
+스프링 시큐리티가 스프링 MVC 에 사용되기 위해 필터로 스프링 동작에 관여하게 설정한다.
+
+
+	<filter>
+		<filter-name>springSecurityFilterChain</filter-name>
+		<filter-class>org.springframework.web.filter.DelegatingFilterProxy</filter-class>
+	</filter>
+
+	<filter-mapping>
+		<filter-name>springSecurityFilterChain</filter-name>
+		<url-pattern>/*</url-pattern>
+	</filter-mapping>
+
+
+web.xml 필터 적용 후 프로젝트 실행하면 에러가 발생한다.
+
+에러원인은 'springSecurityFilterChain' 이란 빈이 제대로 설정되지 않아 발생한다.
+이는 스프링 시큐리티 설정 파일을 찾을 수 없기 때문이다. 이에 대한 처리는 작성된 security-context.xml 을 로딩하도록
+설정하는 작업과 security-context.xml 에 최소한의 설정이 필요하다.
+
+
+	<context-param>
+		<param-name>contextConfigLocation</param-name>
+		<param-value>/WEB-INF/spring/root-context.xml
+		/WEB-INF/spring/security-context.xml</param-value>
+	</context-param>
+
+
+security-context.xml 도 아래와 같은 설정을 추가한다.
+
+
+    <?xml version="1.0" encoding="UTF-8"?>
+    <beans xmlns="http://www.springframework.org/schema/beans"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:security="http://www.springframework.org/schema/security"
+           xsi:schemaLocation="http://www.springframework.org/schema/security
+           http://www.springframework.org/schema/security/spring-security.xsd
+           http://www.springframework.org/schema/beans
+           http://www.springframework.org/schema/beans/spring-beans.xsd ">
+
+        <security:http>
+            <security:form-login />
+        </security:http>
+
+        <security:authentication-manager>
+
+        </security:authentication-manager>
+    </beans>
+
+
+스프링 시큐리티가 동작하기 위해 Authentication Manager 란 존재와 스프링 시큐리티 시작 지점이 필요하기 때문에
+최소한의 설정을 지정한 후 실행한다.
+
+
+            30.2 시큐리티가 필요한 URI 설계
+
+스프링 시큐리티 최소한의 설정 후 시큐리티 제어가 필요한 URI 를 설계하고 적용하도록 한다.
+
+
+    - /sample3/all -> 로그인을 하지 않은 사용자도 접근 가능한 URI
+    - /sample3/member -> 로그인 한 사용자들만 접근할 수 있는 URI
+    - /sample3/admin -> 로그인한 사용자들 중 관리자 권한 있는 사용자만 접근할 수 있는 URI
+
+
+'src/main/java/controller' 패키지에 SampleController3 을 작성하고 URI 에 맞는 메소드를 작성한다.
+
+
+    @Log
+    @RequestMapping("/sample3/*")
+    @Controller
+    public class SampleController3 {
+        @GetMapping("/all")
+        public void doAll() {
+            log.info("do all can access everybody");
+        }
+
+        @GetMapping("/member")
+        public void doMember() {
+            log.info("logined member");
+        }
+
+        @GetMapping("/admin")
+        public void doAdmin() {
+            log.info("admin only");
+        }
+    }
+
+
+views 폴더에 sample3 폴더에 해당 URI 화면을 작성한다.
+
+
+    <%@ page contentType="text/html;charset=UTF-8" language="java" %>
+    <html>
+    <head>
+        <title>Title</title>
+    </head>
+    <body>
+        <h1>/sample3/all page</h1>
+    </body>
+    </html>
+
+
+member.jsp 나 admin.sjp 역시 동일하게 구성한다.
+
+
+            30.3 인증(Authentication)과 권한부여(Authorization - 인가)
+
+스프링 시큐리티 동작을 이해하기 위해 인증(Authentication)과 권한(Authorization)에 대한 이해이다.
+
+인증은 쉽게 '자신을 증명' 하는 것이다. 자기 스스로 무언가 증명할 자료를 제시하는 것이다.
+반면 '권한 부여' 는 남에 의해 자격이 부여된다는 차이가 있다.
+
+스프링 시큐리티에서 가장 중요한 역할을 하는 존재가 인증을 담당하는 AuthenticationManager(인증 매니저)란 존재이다.
+AuthenticationManager 는 다양한 방식의 인증을 처리할 수도 있게 설계되었다.
+
+
+            AuthenticationManager
+                    ↑
+            ProviderManager
+            ↑                               ↑
+    DaoAuthenticationProvider   CasAuthenticationProvider ...
+
+
+ProviderManager 는 인증 처리를 AuthenticationProvider 타입의 객체를 처리하기 위해 위임한다.
+
+
+    AuthenticationManager
+            ↑
+    ProviderManager     ↔   AuthenticationProvider
+
+
+AuthenticationProvider(인증 제공자)는 실제 인증 작업을 진행한다.
+이때 인증 정보엔 권한에 대한 정보를 같이 전달하게 되는데 이 처리는 UserDetailsService 란 존재와 관련있다.
+UserDetailsService 인터페이스의 구현체는 실제 사용자의 정보와 사용자가 가진 권한의 정보를 처리하여 반환하게 된다.
+
+
+    AuthenticationManager
+            ↑
+    ProviderManager     ↔   AuthenticationProvider  ↔   UserDetailsService
+
+
+개발자가 스프링 시큐리티를 커스터마이징 하는 방식은 크게 AuthenticationProvider 를 직접 구현하는 방식과
+실제 처리를 담당하는 UserDetailsService 를 구현하는 형태를 사용하는 것으로 충분하지만,
+새로운 프로토콜이나 인증 구현 방식을 직접 구현하는 경우엔 AuthenticationProvider 인터페이스를 직접 구현하여 사용한다.

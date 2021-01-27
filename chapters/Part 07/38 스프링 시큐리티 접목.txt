@@ -1,0 +1,738 @@
+프로젝트에 스프링 시큐리티를 접목하는 작업은 다음과 같다.
+
+
+    - 로그인과 회원가입 페이지 작성
+    - 기존 화면과 컨트롤러에 시큐리티 관련 내용 추가
+    - Ajax 부분 변경
+
+
+            38.1 로그인 페이지 처리
+
+로그인 페이지의 기본 HTML 코드는 webapp/resources 내의 pages/login.html 페이지를 이용한다.
+
+로그인 처리는 앞의 '/customLogin' 으로 처리하였으니 customLogin.jsp 를 복사하여 login.html 의 코드를
+적용하여 JSP 로 처리하고, 스프링 시큐리티 관련 항목들을 추가한다.
+
+customLogin.jsp 에서 CSS 나 JavaScript 파일 링크는 '../vendor' 나 '../dist' 로된 링크를
+'/resource/vendor 또는 dist' 로 수정한다.
+
+
+<%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
+<%@ taglib prefix="fmt" uri="http://java.sun.com/jsp/jstl/fmt" %>
+<%@ page contentType="text/html;charset=UTF-8" language="java" %>
+<html lang="en">
+
+<head>
+    ...
+</head>
+
+<body class="bg-gradient-primary">
+
+...
+    <form role="form" method="post" action="/login" class="user">
+        <div class="form-group">
+            <input type="text" class="form-control form-control-user"
+                   name="username" aria-describedby="emailHelp"
+                   placeholder="userid">
+        </div>
+        <div class="form-group">
+            <input type="password" class="form-control form-control-user"
+                   name="password" placeholder="Password">
+        </div>
+        <div class="form-group">
+            <div class="custom-control custom-checkbox small">
+                <input type="checkbox" class="custom-control-input" name="remember-me">
+                <label class="custom-control-label">Remember
+                    Me</label>
+            </div>
+        </div>
+        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}" />
+        <button type="button" class="btn btn-success btn-user btn-block">
+            Login
+        </button>
+        <hr>
+        <a href="index.html" class="btn btn-google btn-user btn-block">
+            <i class="fab fa-google fa-fw"></i> Login with Google
+        </a>
+        <a href="index.html" class="btn btn-facebook btn-user btn-block">
+            <i class="fab fa-facebook-f fa-fw"></i> Login with Facebook
+        </a>
+    </form>
+...
+
+<!-- Bootstrap core JavaScript-->
+<script src="${pageContext.request.contextPath}/resources/vendor/jquery/jquery.min.js"></script>
+<script src="${pageContext.request.contextPath}/resources/vendor/bootstrap/js/bootstrap.bundle.min.js">
+</script>
+
+<!-- Core plugin JavaScript-->
+<script src="${pageContext.request.contextPath}/resources/vendor/jquery-easing/jquery.easing.min.js">
+</script>
+
+<!-- Custom scripts for all pages-->
+<script src="${pageContext.request.contextPath}/resources/js/sb-admin-2.min.js"></script>
+<script>
+    $('.btn-success').on("click", function(e) {
+        e.preventDefault();
+        $("form").submit();
+    })
+</script>
+</body>
+
+</html>
+
+
+customLogin.jsp 를 작성할 때 신경쓸 부분은 다음과 같다.
+
+
+    - JSTL 스프링 시큐리티 태그를 사용할 수 있게 선언
+    - CSS 파일이나 JS 파일 링크는 절대 경로
+    - <form> 태그 내의 <input> 태그의 name 속성을 스프링 시큐리티에 맞게 수정
+    - CSRF 토큰 항목 추가
+    - JavaScript 를 통한 로그인 전송
+
+
+위 항목 중 가장 신경쓸 부분은 <form> 태그 내에 <input> 태그들의 name 속성이다.
+
+
+        38.1.1 로그인 테스트
+
+로그인 페이지 처리 후 정상 로그인되는지 확인한다.
+
+'/customLogin' 을 호출 후 'admin99/pw99' 로 로그인하면 에러 화면이 보이게 된다.
+
+이는 이전에 로그인 성공 후 CustomLoginSuccessHandler 를 이용하여 사용자의 권한에 따라 이동하도록 했기 때문이다.
+스프링 시큐리티는 기본적으로 로그인 후 처리를 SavedRequestAwareAuthenticationSuccessHandler 란
+클래스를 이용한다. 해당 클래스는 사용자가 원래 보려고 한 페이지의 정보를 유지하여 로그인 후 다시 원한 페이지로
+이동하는 방식이다.
+SavedRequestAwareAuthenticationSuccessHandler 를 이용한 설정은 기존 XML 이나 Java 설정에서
+authentication-success-handler-ref 속성이나 successHandler() 메소드를 삭제하고 관련 스프링 빈의 설정도
+사용하지 않도록 한다. 예제엔 게시물 작성('/board/register') 시 로그인 페이지로 이동하고,
+로그인 후 다시 게시물의 작성 페이지로 이동하는 방식을 적용해 볼것이다.
+
+
+    <!-- <bean id="customLoginSuccess" class="security.CustomLoginSuccessHandler" /> -->
+
+    <security:form-login login-page="/customLogin" />
+
+
+    SecurityConfig 의 경우
+
+    http.formLogin().loginPage("/customLogin").loginProcessingUrl("/login");
+
+
+            38.2 게시물 작성 시 스프링 시큐리티 처리
+
+일반적인 경우 게시물 리스트의 경우 사용자 관심을 끌기 위해 아무 계약 없이 보여주지만, 작성 시 로그인한 사용자에 한해
+처리되는 경우가 많다. 이런 상황을 고려해 servlet-context.xml 엔 스프링 시큐리티 관련 설정을 추가하고,
+BoardController 에 어노테이션을 통해 제어하도록 한다.
+
+servlet-context.xml 에 어노테이션을 위한 설정은 앞에 처리한 내용을 참고하고,
+BoardController 메소드 일부는 아래와 같은 어노테이션을 추가한다.
+
+
+    @PostMapping("/register")
+    @PreAuthorize("isAuthenticated()")
+    public String register(BoardVO board, RedirectAttributes rttr) {
+        log.info("====================");
+        log.info("register: " + board);
+
+        if(board.getAttachList() != null) {
+            board.getAttachList().forEach(attach -> log.info(attach.toString()));
+        }
+
+        log.info("====================");
+
+        service.register(board);
+
+        rttr.addFlashAttribute("result", board.getBno());
+
+        return "redirect:/board/list";
+    }
+
+    @GetMapping("/register")
+    @PreAuthorize("isAuthenticated()")
+    public void register() {
+
+    }
+
+
+@PreAuthorize 를 이용할 때 표현식은 isAuthenticated() 로 어떤 사용자든 로그인 성공한 사용자만
+사용할 수 있도록 처리한다.
+
+
+        38.2.1 게시물 작성 시 로그인한 사용자의 아이디 출력
+
+게시물 작성은 로그인한 사용자들만 허락되므로, 작성자(writer) 항목에는 현재 사용자의 아이디가 출력될 수 있게
+수정한다.
+
+
+    <label>Writer</label><input class="form-control" name="writer"
+        value='<sec:authentication property="principal.username" />' readonly>
+
+
+register.jsp 와 스프링 시큐리티 영향을 받는 JSP 페이지엔 반드시 시큐리티 관련 태그 라이브러리를 설정하도록 주의한다.
+작성자에 현재 사용자는 현재 로그인한 사용자의 아이디를 출력한다.
+
+
+        38.2.2 CSRF 토큰 설정
+
+스프링 시큐리티 사용 시 POST 방식의 전송은 반드시 CSRF 토큰을 사용하도록 추가해야 한다.
+<form> 태그 내에 CSRF 토큰의 값을 <input type='hidden'> 으로 아래와 같이 추가한다.
+
+
+    <form role="form" action="/board/register" method="post">
+        <input type="hidden" name="${_csrf.parameterName}" value="${_csrf.token}">
+
+
+브라우저에 게시물 등록이 정상적으로 이루어졌는지 확인한 후 다음 단계를 진행한다.
+게시물 등록 시 사용된 첨부파일의 경우 Ajax 와 관련있으니 후에 다룬다.
+
+
+        38.2.3 스프링 시큐리티 한글 처리
+
+게시물 등록에 주의할 점은 스프링 시큐리티 적용 후 한글이 깨지는 문제가 발생할 수 있는 점이다.
+한글 처리는 web.xml 을 이용하여 스프링의 CharacterEncodingFilter 를 이용하여 처리하지만,
+시큐리티를 필터로 적용할 땐 필터 순서를 주의하여 설정해야 한다.(인코딩 적용 후 스프릥 시큐리티 적용)
+
+
+	<filter>
+		<filter-name>encoding</filter-name>
+		<filter-class>org.springframework.web.filter.CharacterEncodingFilter</filter-class>
+		<init-param>
+			<param-name>encoding</param-name>
+			<param-value>UTF-8</param-value>
+		</init-param>
+	</filter>
+
+	<filter-mapping>
+		<filter-name>encoding</filter-name>
+		<url-pattern>/*</url-pattern>
+	</filter-mapping>
+
+	<filter>
+		<filter-name>springSecurityFilterChain</filter-name>
+		<filter-class>org.springframework.web.filter.DelegatingFilterProxy</filter-class>
+	</filter>
+
+	<filter-mapping>
+		<filter-name>springSecurityFilterChain</filter-name>
+		<url-pattern>/*</url-pattern>
+	</filter-mapping>
+
+
+web.xml 필터 순서가 바뀌는 경우 게시물 작성 시 한글이 깨져 BoardController 에 전달된다.
+
+
+            38.3 게시물 조회와 로그인 처리
+
+일반적인 경우 게시물 조회는 그 자체는 로그인 여부에 관계없이 처리되지만, 게시물 조회 화면에서 현재 로그인한
+사용자만 수정/삭제 작업을 할 수 있는 기능이 활성화될 필요가 있다.
+
+게시물 조회 담당 화면에서 현재 작성자가 로그인한 사용자 정보를 비교하여 이를 처리하도록 수정한다.
+
+
+    <%@ taglib prefix="c" uri="http://java.sun.com/jsp/jstl/core" %>
+    <%@ taglib prefix="fmt" uri="http://java.sun.com/jsp/jstl/fmt" %>
+    <%@ taglib prefix="sec" uri="http://www.springframework.org/security/tags" %>
+
+
+현재 로그인하고, 게시물 작성자만 '수정/삭제' 가 가능한 버튼이 보이게 하는 부분을 다음과 같이 구현한다.
+
+
+    <sec:authentication property="principal" var="pinfo" />
+    <sec:authorize access="isAuthenticated()">
+        <c:if test="${pinfo.username eq board.writer}">
+            <button data-oper="modify" class="btn btn-outline-dark">
+                <a href='/board/modify?bno=<c:out value="${board.bno}"/>'>
+                    Modify
+                </a>
+            </button>
+        </c:if>
+    </sec:authorize>
+
+
+<sec:authentication> 태그를 매번 이용하기 불편하니 로그인과 관련된 정보로 pinfo 란 변수로 사용한다.
+<sec:authorize> 는 인증받은 사용자만 영향을 받기 위해 지정하고, 내부에서 username 과 writer 가 일치하는지
+확인하여 'Modify' 버튼을 추가한다.
+
+
+        38.1.1 조회 화면에서 댓글 추가 버튼
+
+로그인한 사용자만 조회 하면에 댓그을 추가할 수 있도록 <sec:authorize> 를 이용하여
+댓글 버튼의 활성화/비활성화도 처리한다.
+
+
+    <sec:authorize access="isAuthenticated()">
+        <button id="addReplyBtn" class="btn btn-primary btn-sm float-right">New Reply</button>
+    </sec:authorize>
+
+
+            38.4 게시물 수정/삭제
+
+게시물 수정과 삭제는 브라우저에 로그인한 사용자만이 접근할 수 있지만, 사용자가 URL 을 조작해도 가능하기 때문에 화면과
+POST 방식으로 처리되는 부분에서 CSRF 토큰과 스프링 시큐리티를 적용한다.
+
+게시물 수정과 삭제에 신경 쓰이는 부분은 게시물 수정과 삭제는 현재 로그인한 사용자와 게시물의 작성자가 동일한 경우에만
+할 수 있단 점이다. 이 처리를 과거엔 인터셉터로 처리했지만, @PreAuthorize 의 경우 표현식으로 처리할 수 있다.
+
+
+        38.4.1 브라우저 화면에서의 설정
+
+코드의 수정은 modify.jsp 를 통해 처리한다.
+
+상단에 스프링 시큐리티 태그 라이브러리를 정의한고 POST 방식으로 처리되는 부분에 CSRF 토큰을 추가한다.
+
+
+    <form role="form" action="/board/modify" method="post">
+        <input type="hidden" name="${_crsf.parameterName}" value="${_csrf.token}">
+
+
+조회와 마찬가지로 현재 로그인한 사용자가 작성자인 경우 수정과 삭제가 가능하도록 제어한다.
+
+
+    <sec:authentication property="principal" var="pinfo" />
+    <sec:authorize access="isAuthenticated()">
+        <c:if test="${pinfo.username eq board.writer}">
+            <button type="submit" data-oper="modify" class="btn btn-outline-dark">Modify</button>
+            <button type="submit" data-oper="remove" class="btn btn-danger">Remove</button>
+        </c:if>
+    </sec:authorize>
+
+
+        38.4.2 BoardController 에서의 제어
+
+BoardController 에선 메소드 실행 전에 로그인한 사용자와 현재 파라미터로 전달되는 작성자는 일치하는지 체크한다.
+@PreAuthorize 의 경우 문자열로 표현식을 지정할 수 있는데 이때 컨트롤러에 전달되는 파라미터를 같이
+사용할 수 있으므로 유용하다.
+
+삭제의 경우 기존 파라미터로 게시물 번호 bno 를 받았지만, 작성자를 의미하는 writer 를 같이 추가하여
+@PreAuthorize 로 검사하도록 한다.
+
+
+    @PreAuthorize("principal.username == #writer")
+    @PostMapping("/remove")
+    public String remove(@RequestParam("bno") Long bno, @ModelAttribute("cri") Criteria cri,
+                         RedirectAttributes rttr, String writer) {
+        log.info("remove ... " + bno);
+
+        List<BoardAttachVO> attachList = service.getAttachList(bno);
+
+        if(service.remove(bno)) {
+            // delete Attach Files
+            deleteFiles(attachList);
+
+            rttr.addFlashAttribute("result", "success");
+        }
+        return "redirect:/board/list" + cri.getListLink();
+    }
+
+
+기존과 달라진 부분은 파라미터로 writer 가 추가된 부분과 해당 파리마터를 @PreAuthorize 에서 '#writer' 를 이용하여
+체크한 부분이다. 게시물 수정은 파라미터로 Board 타입의 객체를 받도록 설계되어 있으므로 아래와 같이 변경한다.
+
+
+    @PreAuthorize("principal.username == #board.writer")
+    @PostMapping("/modify")
+    public String modify(BoardVO board, @ModelAttribute("cri") Criteria cri, RedirectAttributes rttr) {
+        log.info("modify: " +board);
+
+        if(service.modify(board)) {
+            rttr.addFlashAttribute("result", "success");
+        }
+
+        return "redirect:/board/list" + cri.getListLink();
+    }
+
+
+            38.5 Ajax 와 스프링 시큐리티 처리
+
+<form> 태그를 이용한 방식 외에 많이 사용되는 Ajax 를 이용하는 경우 약간의 추가적인 설정이 필요하다.
+예제는 파일 업로드와 댓글 부분이 Ajax 를 이용하니 로그인한 사용자만 해당 기능들을 사용할 수 있도록 수정한다.
+
+스프링 시큐리티가 적용되면 POST, PUT, PATCH, DELETE 와 같은 방식으로 데이터를 전송하는 경우엔 반드시 추가적으로
+'X-CSRF-TOKEN' 와 같은 헤더 정보를 추가해서 CSRF 토큰 값을 전달하도록 수정해야 한다.
+Ajax 는 JavaScript 를 이용하기 때문에 브라우저에 CSRF 토큰과 관련된 값을 변수로 선언하고,
+전송 시 포함시켜 주는 방식으로 수정한다.
+
+
+        38.5.1 게시물 등록 시 첨부파일 처리
+
+스프링 시큐리티 적용 후 게시물에 파일 첨부가 정상 동작하지 않는 것을 알 수 있는데
+게시물 등록이 POST 방식으로 전송되기 때문에 발생하는 문제이다. 게시물 등록 페이지에서 JavaScript 를 수정한다.
+
+
+    var csrfHeaderName = "${_csrf.headerName}";
+    var csrfTokenValue = "${_csrf.token}";
+
+    $("input[type='file']").change(function(e) {
+        var formData = new FormData();
+
+        var inputFile = $("input[name='uploadFile']");
+
+        var files = inputFile[0].files;
+
+        for(let i = 0; i < files.length; i++) {
+            if(!checkExtension(files[i].name, files[i].size)) {
+                return false;
+            }
+            formData.append("uploadFile", files[i]);
+        }
+
+        $.ajax({
+            url: '/uploadAjaxAction',
+            processData: false,
+            contentType: false,
+            beforeSend: function(xhr) {
+                xhr.setRequestHeader(csrfHeaderName, csrfTokenValue)
+            },
+            data: formData,
+            type: 'POST',
+            dataType: 'json',
+            success: function(result) {
+                console.log(result);
+                showUploadResult(result); //    업로드 결과 처리 함수
+            }
+        });
+    });
+
+
+기존 코드에서 csrfHeaderName 과 csrfTokenValue 변수를 추가한다.
+브라우저에선 아래 코드가 생성된다.
+
+
+    var csrfHeaderName = 'X-CSRF-TOKEN';
+    var csrfTokenValue = "토큰값";
+
+
+Ajax 로 데이터를 전송할 땐 beforeSend 를 이용하여 추가적인 헤더를 지정하여 전송된다.
+브라우저 내 개발도구에서 특별한 헤더가 같이 전송된 것을 볼 수 있다.
+
+
+    첨부파일 제거
+
+첨부파일 등록과 마찬가지로 파일 삭제의 경우에도 POST 방식으로 동작하여 CSRF 토큰의 처리가 필요하다.
+
+
+    $('.uploadResult').on("click", "button", function(e) {
+        console.log("delete file");
+
+        var targetFile = $(this).data('file');
+        var type = $(this).data("type");
+        var targetLi = $(this).closest("li");
+
+        $.ajax({
+            url: '/deleteFile',
+            data: {fileName: targetFile, type: type},
+            beforeSend: function(xhr) {
+                xhr.setRequestHeader(csrfHeaderName, csrfTokenValue)
+            },
+            dataType: 'text',
+            type: 'POST',
+            success: function(result) {
+                alert(result);
+                targetLi.remove();
+            }
+        });
+    });
+
+
+    uploadController 수정
+
+브라우저에 로그인한 사용자만 업로드 가능하지만 필요하면 서버쪽에 어노테이션 등을 이용하여 업로드 시 보안을 확인할 수 있다.
+
+
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping(value = "/uploadAjaxAction", produces = MediaType.APPLICATION_JSON_UTF8_VALUE)
+    @ResponseBody
+    public ResponseEntity<List<AttachFileDTO>> uploadAjaxPost(MultipartFile[] uploadFile) {...}
+
+
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/deleteFile")
+    @ResponseBody
+    public ResponseEntity<String> deleteFile(String fileName, String type) {...}
+
+
+첨부파일 등록과 삭제는 외부 로그인한 사용자만 할 수 있도록 제한한다.
+
+
+        38.5.2 게시물 수정/삭제에서 첨부파일의 처리
+
+게시물의 수정 화면에서도 첨부파일은 추가되거나 삭제가 가능하니 코드를 수정할 필요가 있다.
+
+
+    var csrfHeaderName = "${_csrf.headerName}";
+    var csrfTokenValue = "${_csrf.token}";
+
+    $("input[type='file']").change(function(e) {
+        var formData = new FormData();
+
+        var inputFile = $("input[name='uploadFile']");
+
+        var files = inputFile[0].files;
+
+        for(let i = 0; i < files.length; i++) {
+            if(!checkExtension(files[i].name, files[i].size)) {
+                return false;
+            }
+            formData.append("uploadFile", files[i]);
+        }
+
+        $.ajax({
+            url: '/uploadAjaxAction',
+            processData: false,
+            contentType: false,
+            data: formData,
+            type: 'POST',
+            beforeSend: function(xhr) {
+                xhr.setRequestHeader(csrfHeaderName, csrfTokenValue);
+            },
+            dataType: 'json',
+            success: function(result) {
+                console.log(result);
+                showUploadResult(result); //    업로드 결과 처리 함수
+            }
+        });
+    });
+
+
+        38.5.3 댓글 기능에서의 Ajax
+
+댓글의 경우 모든 동작이 Ajax 로 이루어져 화면에서도 수정해야 할 부분이 있고,
+서버 쪽에도 변경될 부분이 있다. 우선 서버 쪽엔 ReplyController 가 댓글에 대한 보안 원칙을 설계할 수 있다.
+
+
+    - 댓글 등록 : 로그인한 사용자만 댓글 추가
+    - 댓글 수정과 삭제 : 로그인한 사용자와 댓글 작성자의 아이디를 비교해서 같은 경우에만 댓글을 수정/삭제할 수 있도록 한다.
+
+
+브라우저 쪽에선 기존과 달라지는 부분은 다음과 같다.
+
+
+    - 댓글 등록 : CSRF 토큰을 같이 전송하도록 수정해야 한다.
+    - 댓글 수정/삭제 : 기존의 댓글 삭제엔 댓글 번호만 처리했는데, 서버 쪽에서 사용할 것으로 댓글 작성자를 같이 전송하도록 수정
+
+
+    댓글 등록
+
+댓글 처리는 get.jsp 파일만을 수정해서 처리한다.
+
+get.jsp 상단에 스프링 시큐리티 태그 라이브러리를 추가한다.
+
+댓글 등록은 만일 사용자가 로그인했으면 현재 로그인한 사용자가 댓글 작성자가 되어야 하니
+아래와 같은 코드를 통해 댓글 작성자를 JavaScript 변수로 설정한다.
+
+
+    var replyer = null;
+
+    <sec:authorize access="isAuthenticated()">
+        replyer = '<sec:authentication property="principal.username" />';
+    </sec:authorize>
+
+    var csrfHeaderName = "${_csrf.headerName}";
+    var csrfTokenValue = "${_csrf.token}";
+
+
+JavaScript 엔 <sec:authorize> 태그를 이용하여 스프링 시큐리티의 username 을
+replyer 란 변수로 처리할 수 있다.
+
+가장 중요한 CSRF 토큰 처리는 csrfHeaderName 변수와 csrfTokenValue 변수를 선언하여 처리한다.
+댓글을 보여주는 모달창엔 현재 로그인한 사용자의 이름으로 replyer 항목이 고정되도록 수정한다.
+
+
+    $('#addReplyBtn').on("click", function(e) {
+        modal.find("input").val("");
+        modal.find("input[name='replyer']").val(replyer);
+        modalInputReplyDate.closest("div").hide();
+        modal.find("button[id != 'modalCloseBtn']").hide();
+
+        modalRegisterBtn.show();
+
+        $("#replyModal").modal("show");
+    });
+
+
+jQuery 를 이용하여 Ajax 로 CSRF 토큰을 전송하는 방식은 첨부파일의 경우 beforeSend 를 이용하여 처리했지만,
+기본 설정으로 지정해서 사용하는 것이 더 편하기 때문에 아래 코드를 사용한다.
+
+
+    // Ajax spring security header...
+    $(document).ajaxSend(function(e, xhr, options) {
+        xhr.setRequestHeader(csrfHeaderName, csrfTokenValue);
+    });
+
+
+ajaxSend() 를 이용한 코드는 모든 Ajax 전송 시 CSRF 토큰을 같이 전송하도록 세팅되기 때문에 매번
+Ajax 사용 시 beforeSend 를 호출해야 하는 번거로움을 줄일 수 있다.
+ReplyController 에선 댓글 등록이 로그인한 사용자인지 확인하게 한다.
+
+
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping(value = "/new", consumes = "application/json", produces = {MediaType.TEXT_PLAIN_VALUE})
+    public ResponseEntity<String> create(@RequestBody ReplyVO vo) {
+        log.info("ReplyVO: " + vo);
+
+        int insertCount = service.register(vo);
+
+        log.info("Reply INSERT COUNT: " + insertCount);
+
+        return insertCount == 1
+                ? new ResponseEntity<>("success", HttpStatus.OK)
+                : new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+        // 삼항 연산자 처리
+    }
+
+
+브라우저에 새로운 댓글을 추가하려고 하면 댓글 작성자(replyer)는 고정된 형태로 보이게 되고,
+전송 시 CSRF 토큰이 같이 전송된다.
+
+
+    댓글 삭제
+
+댓글 삭제는 자신이 작성한 댓글만이 삭제가 가능토록 한다.
+화면에선 JavaScript 를 이용하여 모달창의 댓글 작성자 정보와 현재 로그인한 사용자가 같은지를 비교하여
+같은 경우에만 Ajax 로 댓글을 삭제할 수 있도록 한다. 만일 자신이 작성한 댓글이 아닌 경우나
+로그인하지 않은 경우엔 삭제할 수 없도록 제한해야 한다.
+
+댓글 수정과 삭제는 처리해야 하는 작업이 좀 많다. 우선 기존과 달리 댓글 작성자 항목을 같이 전송해야 하므로
+이에 대한 코드 수정이 필요하다. 댓글 삭제 시 기존 rno 와 같이 댓글 번호만 전송했지만 원래 댓글 작성자를 같이
+전송하도록 수정한다.
+
+
+    modalRemoveBtn.on("click", function(e) {
+        var rno = modal.data("rno");
+
+        console.log("RNO: " + rno);
+        console.log("REPLYER: " + replyer);
+
+        if(!replyer) {
+            alert("로그인 후 삭제가 가능합니다.");
+            modal.modal("hide");
+            return;
+        }
+
+        var originalReplyer = modalInputReplyer.val();
+
+        console.log("Original Replyer: " + originalReplyer);    // 댓글 원래 작성자
+
+        if(replyer != originalReplyer) {
+            alert("자신이 작성한 댓글만 삭제 가능합니다.");
+            modal.modal("hide");
+            return;
+        }
+
+        replyService.remove(rno, originalReplyer, function(result) {
+            alert(result);
+            modal.modal("hide");
+            showList(pageNum);
+        });
+    });
+
+
+originalReplyer 가 추가된 후 resources 폴덩내의 js/reply.js 에서 rno 와 replyer 를 같이 전송하도록 수정한다.
+
+
+    function remove(rno, replyer, callback, error) {
+        $.ajax({
+            type: 'delete',
+            url: '/replies/' + rno,
+            data: JSON.stringify({rno: rno, replyer: replyer}),
+            contentType: "application/json; charset=utf-8",
+            success: function(deleteResult, status, xhr) {
+                if(callback) {
+                    callback(deleteResult);
+                }
+            },
+            error: function(xhr, status, er) {
+                if(error) {
+                    error(er);
+                }
+            }
+        });
+    }
+
+
+reply.js 의 remove 는 기존과 다르게 replyer 를 추가적으로 파라미터로 지정하고,
+데이터 전송 시 JSON 으로 전송되는 데이터를 처리하도록 수정한다.
+
+
+    @PreAuthorize("principal.username == #vo.replyer")
+    @DeleteMapping(value = "/{rno}")
+    public ResponseEntity<String> remove(@RequestBody ReplyVO vo,
+                                         @PathVariable("rno") Long rno) {
+        log.info("remove: " + rno);
+
+        log.info("replyer: " + vo.getReplyer());
+
+        return service.remove(rno) == 1
+                ? new ResponseEntity<>("success", HttpStatus.OK)
+                : new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+
+기존 코드와 비교하면 어노테이션 추가와 파라미터가 @RequestBody 가 적용되어 JSON 으로 된 데이터를
+받도록 수정됐다.
+
+브라우저를 통해 댓글이 정상 삭제되는지 확인한다. 브라우저엔 JSON 데이터를 전송하고
+ReplyController 에선 로그를 통해 정상적으로 동작하는지 확인한다.
+
+
+    댓글 수정
+
+댓글 수정은 기존 댓글의 내용만 전ㅅ농했지만, 댓글 작성자가 같이 전송되도록 수정한다.
+
+
+    modalModBtn.on("click", function(e) {
+        var originalReplyer = modalInputReplyer.val();
+
+        var reply = {
+            rno: modal.data('rno'),
+            reply: modalInputReply.val(),
+            replyer: originalReplyer
+        };
+
+        if(!replyer) {
+            alert("로그인 후 수정이 가능합니다");
+            modal.modal("hide");
+            return;
+        }
+
+        console.log("Original Replyer: " + originalReplyer);
+
+        if(replyer != originalReplyer) {
+            alert("자신이 작성한 댓글만 수정이 가능합니다.");
+            modal.modal("hide");
+            return;
+        }
+
+        replyService.update(reply, function(result) {
+            alert(result);
+            modal.modal("hide");
+            showList(pageNum);
+        });
+    });
+
+
+ReplyController 에선 어노테이션 처리가 추가된다.
+
+
+    @PreAuthorize("principal.username == #vo.replyer")
+    @RequestMapping(method = {RequestMethod.PUT, RequestMethod.PATCH},
+            value = "/{rno}",
+            consumes = "application/json")
+    public ResponseEntity<String> modify(
+            @RequestBody ReplyVO vo,
+            @PathVariable("rno") Long rno) {
+        vo.setRno(rno);
+
+        log.info("rno: " + rno);
+        log.info("modify: " + vo);
+
+        return service.modify(vo) == 1
+                ? new ResponseEntity<>("success", HttpStatus.OK)
+                : new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+
+브라우저로 실행할 땐 JSON 데이터가 전송되는지 확인하고 서버에서 로그를 확인한다.
